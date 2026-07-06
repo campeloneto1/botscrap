@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -59,8 +60,13 @@ class ScrapingScheduler:
 
             for profile in profiles:
                 await self.scrape_profile(db, profile)
-                # Delay between profiles
-                await asyncio.sleep(settings.scrape_delay_seconds)
+                # Delay aleatório entre perfis (mais natural, evita rate limit)
+                delay = random.uniform(
+                    settings.scrape_delay_seconds,
+                    settings.scrape_delay_seconds * 2
+                )
+                logger.info(f"Waiting {delay:.1f}s before next profile...")
+                await asyncio.sleep(delay)
 
         logger.info("Scraping job completed")
 

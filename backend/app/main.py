@@ -8,9 +8,13 @@ from app.api import auth, profiles, keywords, telegram, dashboard
 from app.db.database import engine, Base, async_session
 from app.db.models import User
 from app.core.security import get_password_hash
+from app.core.scheduler import ScrapingScheduler
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# Scheduler instance
+scheduler = ScrapingScheduler()
 
 app = FastAPI(
     title=settings.app_name,
@@ -58,6 +62,16 @@ async def startup():
             logger.info(f"Admin user created: {settings.admin_email}")
         else:
             logger.info(f"Admin user already exists: {settings.admin_email}")
+
+    # Start scheduler
+    scheduler.start()
+    logger.info("Scheduler started")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    scheduler.stop()
+    logger.info("Scheduler stopped")
 
 
 @app.get("/")
