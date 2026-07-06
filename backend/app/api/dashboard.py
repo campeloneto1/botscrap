@@ -28,6 +28,13 @@ def get_scheduler_status():
     }
 
 
+async def run_manual_scrape(hours: int = 3):
+    """Run a manual scrape with custom hours period."""
+    if _scheduler:
+        return await _scheduler.run_manual_scrape(hours)
+    return None
+
+
 @router.get("/stats")
 async def get_stats(
     db: AsyncSession = Depends(get_db),
@@ -93,6 +100,26 @@ async def get_stats(
         "keyword_alerts_today": keyword_posts_today,
         "scheduler": get_scheduler_status(),
     }
+
+
+@router.post("/run-scrape")
+async def trigger_manual_scrape(
+    hours: int = Query(default=3, ge=1, le=24),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Trigger a manual scrape for testing purposes."""
+    if not current_user.is_admin:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can trigger manual scrapes",
+        )
+
+    result = await run_manual_scrape(hours)
+    if result is None:
+        return {"success": False, "error": "Scheduler not available"}
+    return result
 
 
 @router.get("/logs")

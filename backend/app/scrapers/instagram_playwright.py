@@ -205,7 +205,8 @@ class InstagramPlaywrightScraper(BaseScraper):
                 media_url = await og_image.get_attribute("content") or ""
 
             # Check if it's a video
-            is_video = "video" in content.lower() and ('video' in (await page.query_selector('video') or ''))
+            video_elem = await page.query_selector('video')
+            is_video = video_elem is not None
 
             # Try to extract date from the page
             time_elem = await page.query_selector('time[datetime]')

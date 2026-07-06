@@ -93,6 +93,188 @@ class ScrapingScheduler:
             "interval_hours": self._current_interval_hours,
         }
 
+    async def run_manual_scrape(self, hours: int = 3) -> dict:
+        """Run a manual scrape with custom hours period."""
+        logger.info(f"Starting manual scrape for last {hours} hours...")
+        results = {
+            "success": True,
+            "hours": hours,
+            "profiles_scraped": 0,
+            "posts_found": 0,
+            "posts_sent": 0,
+            "errors": [],
+        }
+
+        # Get settings and profiles first
+        async with async_session() as db:
+            app_settings = await get_app_settings(db)
+            scrape_delay = get_scrape_delay(app_settings)
+
+            # Get all active profiles with their relationships loaded
+            from sqlalchemy.orm import selectinload
+            result = await db.execute(
+                select(Profile)
+                .options(selectinload(Profile.telegram_group))
+                .where(Profile.active == True)
+            )
+            profiles = result.scalars().all()
+            profile_ids = [(p.id, p.username, p.platform, p.user_id,
+                           p.telegram_group_id,
+                           p.telegram_group.chat_id if p.telegram_group else None)
+                          for p in profiles]
+
+        # Process each profile with its own session
+        for profile_data in profile_ids:
+            profile_id, username, platform, user_id, tg_group_id, chat_id = profile_data
+            try:
+                async with async_session() as db:
+                    stats = await self._scrape_profile_by_id(
+                        db, profile_id, username, platform, user_id,
+                        tg_group_id, chat_id, app_settings, hours
+                    )
+                    results["profiles_scraped"] += 1
+                    results["posts_found"] += stats.get("posts_found", 0)
+                    results["posts_sent"] += stats.get("posts_sent", 0)
+
+                # Small delay between profiles
+                await asyncio.sleep(scrape_delay)
+            except Exception as e:
+                results["errors"].append(f"{username}: {str(e)}")
+                logger.error(f"Error scraping {username}: {e}")
+
+        logger.info(f"Manual scrape completed: {results}")
+        return results
+
+    async def _scrape_profile_by_id(
+        self, db: AsyncSession, profile_id: int, username: str, platform: str,
+        user_id: int, telegram_group_id: int, chat_id: str,
+        app_settings: AppSettings, hours: int
+    ) -> dict:
+        """Scrape a single profile by ID with custom hours period."""
+        logger.info(f"Manual scraping {platform}/@{username} for last {hours} hours")
+
+        scraper = self.scrapers.get(platform)
+        if not scraper:
+            raise Exception(f"No scraper for platform {platform}")
+
+        stats = {"posts_found": 0, "posts_sent": 0}
+
+        # Get user's keywords
+        keywords_result = await db.execute(
+            select(Keyword).where(
+                Keyword.user_id == user_id,
+                Keyword.active == True,
+            )
+        )
+        keywords = [
+            {"word": k.word, "priority": k.priority}
+            for k in keywords_result.scalars().all()
+        ]
+
+        # Use custom hours period
+        since = datetime.utcnow() - timedelta(hours=hours)
+
+        # Get posts
+        posts = await scraper.get_recent_posts(
+            username,
+            limit=20,
+            since=since,
+        )
+
+        stats["posts_found"] = len(posts)
+
+        # Process posts
+        for post in posts:
+            # Check if already processed
+            existing = await db.execute(
+                select(ProcessedPost).where(
+                    ProcessedPost.profile_id == profile_id,
+                    ProcessedPost.post_id == post["post_id"],
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
+
+            # Check for keywords
+            content = post.get("content", "")
+            has_keyword, matched, priority = find_keywords(content, keywords)
+
+            # Generate AI summary for long posts (if enabled)
+            summary = None
+            ai_enabled = is_ai_summary_enabled(app_settings)
+            if ai_enabled and content and len(content) > 300:
+                try:
+                    summary = await generate_summary(content, app_settings)
+                except Exception as e:
+                    logger.warning(f"Failed to generate summary: {e}")
+
+            # Save to database
+            processed_post = ProcessedPost(
+                profile_id=profile_id,
+                post_id=post["post_id"],
+                content=content,
+                summary=summary,
+                media_url=post.get("media_url"),
+                has_keyword=has_keyword,
+                matched_keywords=matched if matched else None,
+            )
+            db.add(processed_post)
+
+            # Add summary to post dict for telegram
+            if summary:
+                post["summary"] = summary
+
+            # Send to Telegram
+            if telegram_group_id and chat_id:
+                try:
+                    telegram_token = get_telegram_token(app_settings)
+                    bot = TelegramBot(token=telegram_token)
+
+                    if has_keyword and priority >= 2:
+                        await bot.send_alert(
+                            chat_id=chat_id,
+                            post=post,
+                            profile_username=username,
+                            platform=platform,
+                            matched_keywords=matched,
+                            priority=priority,
+                        )
+                    else:
+                        await bot.send_post(
+                            chat_id=chat_id,
+                            post=post,
+                            profile_username=username,
+                            platform=platform,
+                            matched_keywords=matched if has_keyword else None,
+                        )
+
+                    processed_post.sent_at = datetime.utcnow()
+                    stats["posts_sent"] += 1
+                except Exception as e:
+                    logger.error(f"Failed to send to Telegram: {e}")
+
+        # Update last scraped
+        await db.execute(
+            select(Profile).where(Profile.id == profile_id).with_for_update()
+        )
+        profile_obj = (await db.execute(
+            select(Profile).where(Profile.id == profile_id)
+        )).scalar_one()
+        profile_obj.last_scraped = datetime.utcnow()
+
+        # Log
+        log = ScrapingLog(
+            profile_id=profile_id,
+            status="success",
+            message=f"Manual scrape: {username} ({hours}h)",
+            posts_found=stats["posts_found"],
+            posts_sent=stats["posts_sent"],
+        )
+        db.add(log)
+
+        await db.commit()
+        return stats
+
     async def run_scraping_job(self):
         """Main scraping job that runs periodically."""
         logger.info("Starting scraping job...")
