@@ -76,6 +76,11 @@ export const deleteProfile = async (id: number) => {
   return response.data
 }
 
+export const toggleProfile = async (id: number) => {
+  const response = await api.patch(`/profiles/${id}/toggle`)
+  return response.data
+}
+
 export const testProfile = async (id: number) => {
   const response = await api.post(`/profiles/${id}/test`)
   return response.data
@@ -144,8 +149,55 @@ export const getLogs = async (limit = 50) => {
   return response.data
 }
 
-export const getPosts = async (limit = 20, keywordOnly = false) => {
-  const response = await api.get(`/dashboard/posts?limit=${limit}&keyword_only=${keywordOnly}`)
+export interface PostsFilter {
+  limit?: number
+  offset?: number
+  keyword_only?: boolean
+  sent_only?: boolean
+  profile_id?: number
+  search?: string
+}
+
+export const getPosts = async (filters: PostsFilter = {}) => {
+  const params = new URLSearchParams()
+  if (filters.limit) params.append('limit', filters.limit.toString())
+  if (filters.offset) params.append('offset', filters.offset.toString())
+  if (filters.keyword_only) params.append('keyword_only', 'true')
+  if (filters.sent_only) params.append('sent_only', 'true')
+  if (filters.profile_id) params.append('profile_id', filters.profile_id.toString())
+  if (filters.search) params.append('search', filters.search)
+
+  const response = await api.get(`/dashboard/posts?${params.toString()}`)
+  return response.data
+}
+
+// Settings
+export interface AppSettings {
+  id: number
+  telegram_bot_token: string | null
+  instagram_username: string | null
+  instagram_password: string | null
+  scrape_interval_hours: number
+  scrape_delay_seconds: number
+  use_proxies: boolean
+  proxy_list: string | null
+  groq_api_key: string | null
+  enable_ai_summary: boolean
+  updated_at: string | null
+}
+
+export const getAppSettings = async () => {
+  const response = await api.get('/settings')
+  return response.data as AppSettings
+}
+
+export const updateAppSettings = async (data: Partial<AppSettings>) => {
+  const response = await api.put('/settings', data)
+  return response.data as AppSettings
+}
+
+export const testTelegramConnection = async () => {
+  const response = await api.post('/settings/test-telegram')
   return response.data
 }
 

@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     scrape_interval_hours: int = 6
     scrape_delay_seconds: int = 3
 
+    # AI Summary (Groq - free tier)
+    groq_api_key: str = ""
+    enable_ai_summary: bool = True
+
     # Proxies
     use_proxies: bool = False
     proxy_list: str = ""

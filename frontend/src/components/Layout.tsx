@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Users, Hash, Send, LogOut } from 'lucide-react'
+import { LayoutDashboard, Users, Hash, Send, LogOut, FileText, Settings } from 'lucide-react'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -16,9 +16,11 @@ export default function Layout({ children, onLogout }: LayoutProps) {
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/posts', label: 'Posts', icon: FileText },
     { path: '/profiles', label: 'Perfis', icon: Users },
     { path: '/keywords', label: 'Palavras-chave', icon: Hash },
     { path: '/telegram', label: 'Telegram', icon: Send },
+    { path: '/settings', label: 'Configurações', icon: Settings },
   ]
 
   return (

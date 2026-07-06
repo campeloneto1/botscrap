@@ -1,5 +1,6 @@
 import logging
 import re
+import unicodedata
 from typing import List, Optional, Dict, Any
 
 from telegram import Bot
@@ -8,28 +9,51 @@ from telegram.constants import ParseMode
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
+env_settings = get_settings()
 
 
 class TelegramBot:
     """Telegram bot for sending notifications."""
 
-    def __init__(self):
-        if not settings.telegram_bot_token:
+    def __init__(self, token: Optional[str] = None):
+        # Use provided token, or fallback to .env
+        bot_token = token or env_settings.telegram_bot_token
+        if not bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN not configured")
-        self.bot = Bot(token=settings.telegram_bot_token)
+        self.bot = Bot(token=bot_token)
+
+    def _normalize_text(self, text: str) -> str:
+        """Remove accents and convert to lowercase."""
+        if not text:
+            return ""
+        normalized = unicodedata.normalize('NFD', text)
+        without_accents = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+        return without_accents.lower()
 
     def _highlight_keywords(self, text: str, keywords: List[str]) -> str:
-        """Highlight keywords in text with bold formatting."""
-        if not keywords:
+        """Highlight keywords in text with bold formatting. Handles accents."""
+        if not keywords or not text:
             return text
 
-        for keyword in keywords:
-            # Case-insensitive replacement with bold
-            pattern = re.compile(re.escape(keyword), re.IGNORECASE)
-            text = pattern.sub(f"<b>⚡{keyword.upper()}⚡</b>", text)
+        result = text
+        text_normalized = self._normalize_text(text)
 
-        return text
+        for keyword in keywords:
+            keyword_normalized = self._normalize_text(keyword)
+            if not keyword_normalized:
+                continue
+
+            # Find matches in normalized text
+            pattern = re.compile(r'\b' + re.escape(keyword_normalized) + r'\b')
+            matches = list(pattern.finditer(text_normalized))
+
+            # Replace from end to start to preserve positions
+            for match in reversed(matches):
+                start, end = match.start(), match.end()
+                original_word = result[start:end]
+                result = result[:start] + f"<b>⚡{original_word.upper()}⚡</b>" + result[end:]
+
+        return result
 
     async def send_message(
         self,
@@ -94,18 +118,26 @@ class TelegramBot:
         lines.append(f"{platform_emoji} <b>@{profile_username}</b>")
         lines.append("")
 
-        # Content with keyword highlighting
+        # Content - use summary if available, otherwise send full content
         content = post.get("content", "")
-        if content:
-            # Truncate if too long
-            if len(content) > 800:
-                content = content[:800] + "..."
+        summary = post.get("summary")
+
+        if summary:
+            # Show AI summary
+            lines.append(f"📝 <b>Resumo:</b> {summary}")
+            lines.append("")
+            if len(content) > 200:
+                lines.append(f"<i>(Post completo: {len(content)} caracteres)</i>")
+                lines.append("")
+        elif content:
+            # Send full content (no truncation when summary not available)
+            display_content = content
 
             # Highlight keywords if any
             if matched_keywords:
-                content = self._highlight_keywords(content, matched_keywords)
+                display_content = self._highlight_keywords(display_content, matched_keywords)
 
-            lines.append(content)
+            lines.append(display_content)
             lines.append("")
 
         # Link
@@ -160,15 +192,22 @@ class TelegramBot:
         lines.append(f"{platform_emoji} <b>@{profile_username}</b>")
         lines.append("")
 
-        # Content with highlighting
+        # Content - use summary if available, otherwise send full content
         content = post.get("content", "")
-        if content:
-            if len(content) > 800:
-                content = content[:800] + "..."
+        summary = post.get("summary")
 
-            # Highlight keywords
-            content = self._highlight_keywords(content, matched_keywords)
-            lines.append(content)
+        if summary:
+            # Show AI summary with highlighted keywords
+            summary_highlighted = self._highlight_keywords(summary, matched_keywords)
+            lines.append(f"📝 <b>Resumo:</b> {summary_highlighted}")
+            lines.append("")
+            if len(content) > 200:
+                lines.append(f"<i>(Post completo: {len(content)} caracteres)</i>")
+                lines.append("")
+        elif content:
+            # Send full content with highlighted keywords
+            display_content = self._highlight_keywords(content, matched_keywords)
+            lines.append(display_content)
             lines.append("")
 
         # Link
@@ -183,3 +222,27 @@ class TelegramBot:
             return await self.send_photo(chat_id, media_url, caption)
         else:
             return await self.send_message(chat_id, caption)
+
+    async def send_no_posts_found(
+        self,
+        chat_id: str,
+        profile_username: str,
+        platform: str,
+        hours: int,
+    ) -> bool:
+        """Send notification when no posts are found for a profile."""
+        platform_emoji = {
+            "instagram": "📸",
+            "twitter": "🐦",
+            "facebook": "📘",
+        }.get(platform, "📱")
+
+        message = (
+            f"ℹ️ <b>Nenhum post encontrado</b>\n"
+            f"\n"
+            f"{platform_emoji} <b>@{profile_username}</b>\n"
+            f"\n"
+            f"Nenhum post encontrado nas últimas <b>{hours}</b> hora(s)."
+        )
+
+        return await self.send_message(chat_id, message)

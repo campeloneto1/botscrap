@@ -224,7 +224,7 @@ class InstagramPlaywrightScraper(BaseScraper):
 
             return {
                 "post_id": shortcode,
-                "content": caption[:500] if caption else "",  # Limit caption length
+                "content": caption or "",
                 "media_url": media_url,
                 "created_at": created_at,
                 "likes": 0,  # Can't easily get without login

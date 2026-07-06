@@ -145,6 +145,34 @@ async def delete_profile(
     return {"message": "Profile deleted"}
 
 
+@router.patch("/{profile_id}/toggle", response_model=ProfileResponse)
+async def toggle_profile_active(
+    profile_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Toggle profile active status (pause/resume monitoring)."""
+    result = await db.execute(
+        select(Profile).where(
+            Profile.id == profile_id,
+            Profile.user_id == current_user.id,
+        )
+    )
+    profile = result.scalar_one_or_none()
+
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found",
+        )
+
+    profile.active = not profile.active
+    await db.commit()
+    await db.refresh(profile)
+
+    return profile
+
+
 @router.post("/{profile_id}/test")
 async def test_scrape_profile(
     profile_id: int,

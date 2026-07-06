@@ -61,6 +61,7 @@ class ProcessedPost(Base):
     profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False)
     post_id = Column(String(255), nullable=False)  # ID único da rede social
     content = Column(Text, nullable=True)
+    summary = Column(Text, nullable=True)  # AI-generated summary
     media_url = Column(Text, nullable=True)
     has_keyword = Column(Boolean, default=False)
     matched_keywords = Column(JSON, nullable=True)
@@ -95,3 +96,31 @@ class ScrapingLog(Base):
     posts_found = Column(Integer, default=0)
     posts_sent = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AppSettings(Base):
+    """Global application settings (singleton - only one row)."""
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Telegram
+    telegram_bot_token = Column(String(255), nullable=True)
+
+    # Instagram
+    instagram_username = Column(String(255), nullable=True)
+    instagram_password = Column(String(255), nullable=True)
+
+    # Scraping
+    scrape_interval_hours = Column(Integer, default=6)
+    scrape_delay_seconds = Column(Integer, default=3)
+
+    # Proxies
+    use_proxies = Column(Boolean, default=False)
+    proxy_list = Column(Text, nullable=True)  # One proxy per line
+
+    # AI Summary
+    groq_api_key = Column(String(255), nullable=True)
+    enable_ai_summary = Column(Boolean, default=True)
+
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

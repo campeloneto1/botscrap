@@ -10,6 +10,23 @@ from app.core.security import get_current_user
 
 router = APIRouter()
 
+# Import scheduler instance from main (will be set after app starts)
+_scheduler = None
+
+def set_scheduler(scheduler):
+    global _scheduler
+    _scheduler = scheduler
+
+def get_scheduler_status():
+    if _scheduler:
+        return _scheduler.get_status()
+    return {
+        "is_running": False,
+        "last_run": None,
+        "next_run": None,
+        "interval_hours": None,
+    }
+
 
 @router.get("/stats")
 async def get_stats(
@@ -74,6 +91,7 @@ async def get_stats(
         "total_telegram_groups": total_groups,
         "posts_today": posts_today,
         "keyword_alerts_today": keyword_posts_today,
+        "scheduler": get_scheduler_status(),
     }
 
 
@@ -109,35 +127,62 @@ async def get_logs(
 @router.get("/posts")
 async def get_recent_posts(
     limit: int = Query(default=20, le=100),
+    offset: int = Query(default=0, ge=0),
     keyword_only: bool = Query(default=False),
+    sent_only: bool = Query(default=False),
+    profile_id: Optional[int] = Query(default=None),
+    search: Optional[str] = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from sqlalchemy.orm import selectinload
+
     query = (
         select(ProcessedPost)
         .join(Profile)
+        .options(selectinload(ProcessedPost.profile))
         .where(Profile.user_id == current_user.id)
     )
 
     if keyword_only:
         query = query.where(ProcessedPost.has_keyword == True)
 
-    query = query.order_by(ProcessedPost.processed_at.desc()).limit(limit)
+    if sent_only:
+        query = query.where(ProcessedPost.sent_at.isnot(None))
+
+    if profile_id:
+        query = query.where(ProcessedPost.profile_id == profile_id)
+
+    if search:
+        query = query.where(ProcessedPost.content.ilike(f"%{search}%"))
+
+    # Count total for pagination
+    count_query = select(func.count()).select_from(query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    query = query.order_by(ProcessedPost.processed_at.desc()).offset(offset).limit(limit)
 
     result = await db.execute(query)
     posts = result.scalars().all()
 
-    return [
-        {
-            "id": post.id,
-            "profile_id": post.profile_id,
-            "post_id": post.post_id,
-            "content": post.content[:200] if post.content else None,
-            "media_url": post.media_url,
-            "has_keyword": post.has_keyword,
-            "matched_keywords": post.matched_keywords,
-            "sent_at": post.sent_at,
-            "processed_at": post.processed_at,
-        }
-        for post in posts
-    ]
+    return {
+        "total": total,
+        "posts": [
+            {
+                "id": post.id,
+                "profile_id": post.profile_id,
+                "profile_username": post.profile.username if post.profile else None,
+                "profile_platform": post.profile.platform if post.profile else None,
+                "post_id": post.post_id,
+                "content": post.content,
+                "summary": post.summary,
+                "media_url": post.media_url,
+                "has_keyword": post.has_keyword,
+                "matched_keywords": post.matched_keywords,
+                "sent_at": post.sent_at,
+                "processed_at": post.processed_at,
+            }
+            for post in posts
+        ]
+    }

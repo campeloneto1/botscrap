@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { getStats, getPosts } from '../services/api'
-import { Users, Hash, Send, FileText, AlertTriangle } from 'lucide-react'
+import { Users, Hash, Send, FileText, AlertTriangle, Clock, Activity } from 'lucide-react'
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -10,7 +10,7 @@ export default function Dashboard() {
 
   const { data: recentPosts, isLoading: postsLoading } = useQuery({
     queryKey: ['recent-posts'],
-    queryFn: () => getPosts(10),
+    queryFn: () => getPosts({ limit: 10 }),
   })
 
   if (statsLoading) {
@@ -29,9 +29,41 @@ export default function Dashboard() {
     { label: 'Alertas Hoje', value: stats?.keyword_alerts_today || 0, icon: AlertTriangle, color: 'bg-red-500' },
   ]
 
+  const formatDateTime = (isoString: string | null) => {
+    if (!isoString) return '-'
+    return new Date(isoString).toLocaleString('pt-BR')
+  }
+
+  const scheduler = stats?.scheduler
+
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Dashboard</h1>
+
+        {/* Scheduler Status */}
+        {scheduler && (
+          <div className={`flex items-center gap-3 px-4 py-2 rounded-lg ${
+            scheduler.is_running ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Activity
+                size={18}
+                className={scheduler.is_running ? 'text-green-600 animate-pulse' : 'text-red-600'}
+              />
+              <span className={`font-medium ${scheduler.is_running ? 'text-green-700' : 'text-red-700'}`}>
+                {scheduler.is_running ? 'Scheduler Ativo' : 'Scheduler Parado'}
+              </span>
+            </div>
+            {scheduler.is_running && scheduler.next_run && (
+              <div className="flex items-center gap-1 text-sm text-gray-600 border-l border-gray-300 pl-3">
+                <Clock size={14} />
+                <span>Próxima verificação: {formatDateTime(scheduler.next_run)}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
@@ -61,11 +93,11 @@ export default function Dashboard() {
         <div className="p-4">
           {postsLoading ? (
             <p className="text-gray-500">Carregando...</p>
-          ) : recentPosts?.length === 0 ? (
+          ) : !recentPosts?.posts?.length ? (
             <p className="text-gray-500">Nenhum post coletado ainda.</p>
           ) : (
             <div className="space-y-4">
-              {recentPosts?.map((post: any) => (
+              {recentPosts.posts.map((post: any) => (
                 <div
                   key={post.id}
                   className={`p-4 rounded-lg border ${
@@ -75,10 +107,10 @@ export default function Dashboard() {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <p className="text-sm text-gray-600 mb-1">
-                        Post ID: {post.post_id}
+                        @{post.profile_username}
                       </p>
                       <p className="text-gray-800">
-                        {post.content || '(sem texto)'}
+                        {post.summary || (post.content?.slice(0, 200) + (post.content?.length > 200 ? '...' : '')) || '(sem texto)'}
                       </p>
                       {post.has_keyword && post.matched_keywords && (
                         <div className="mt-2">

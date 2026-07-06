@@ -2,9 +2,11 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Posts from './pages/Posts'
 import Profiles from './pages/Profiles'
 import Keywords from './pages/Keywords'
 import TelegramGroups from './pages/TelegramGroups'
+import Settings from './pages/Settings'
 import Layout from './components/Layout'
 
 function App() {
@@ -49,6 +51,18 @@ function App() {
           }
         />
         <Route
+          path="/posts"
+          element={
+            isAuthenticated ? (
+              <Layout onLogout={() => setIsAuthenticated(false)}>
+                <Posts />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
           path="/profiles"
           element={
             isAuthenticated ? (
@@ -78,6 +92,18 @@ function App() {
             isAuthenticated ? (
               <Layout onLogout={() => setIsAuthenticated(false)}>
                 <TelegramGroups />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            isAuthenticated ? (
+              <Layout onLogout={() => setIsAuthenticated(false)}>
+                <Settings />
               </Layout>
             ) : (
               <Navigate to="/login" replace />

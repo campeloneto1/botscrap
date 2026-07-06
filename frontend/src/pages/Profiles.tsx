@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getProfiles, createProfile, updateProfile, deleteProfile, testProfile, testProfileTelegram, getTelegramGroups } from '../services/api'
-import { Plus, Trash2, Play, Instagram, Pencil, X, Send } from 'lucide-react'
+import { getProfiles, createProfile, updateProfile, deleteProfile, testProfile, testProfileTelegram, getTelegramGroups, toggleProfile } from '../services/api'
+import { Plus, Trash2, Play, Instagram, Pencil, X, Send, Pause, PlayCircle } from 'lucide-react'
 
 export default function Profiles() {
   const queryClient = useQueryClient()
@@ -54,6 +54,14 @@ export default function Profiles() {
     mutationFn: testProfileTelegram,
     onSuccess: (data) => {
       setTestResult({ ...data, type: 'telegram' })
+    },
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: toggleProfile,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profiles'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
   })
 
@@ -269,6 +277,18 @@ export default function Profiles() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => toggleMutation.mutate(profile.id)}
+                          disabled={toggleMutation.isPending}
+                          className={`p-2 rounded-lg transition-colors ${
+                            profile.active
+                              ? 'text-orange-600 hover:bg-orange-50'
+                              : 'text-green-600 hover:bg-green-50'
+                          }`}
+                          title={profile.active ? 'Pausar monitoramento' : 'Retomar monitoramento'}
+                        >
+                          {profile.active ? <Pause size={18} /> : <PlayCircle size={18} />}
+                        </button>
                         <button
                           onClick={() => testMutation.mutate(profile.id)}
                           disabled={testMutation.isPending}

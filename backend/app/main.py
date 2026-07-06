@@ -5,6 +5,8 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.api import auth, profiles, keywords, telegram, dashboard
+from app.api import settings as settings_api
+from app.api.settings import set_scheduler as set_settings_scheduler
 from app.db.database import engine, Base, async_session
 from app.db.models import User
 from app.core.security import get_password_hash
@@ -15,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 # Scheduler instance
 scheduler = ScrapingScheduler()
+
+# Share scheduler with APIs
+dashboard.set_scheduler(scheduler)
+set_settings_scheduler(scheduler)
 
 app = FastAPI(
     title=settings.app_name,
@@ -37,6 +43,7 @@ app.include_router(profiles.router, prefix="/api/profiles", tags=["profiles"])
 app.include_router(keywords.router, prefix="/api/keywords", tags=["keywords"])
 app.include_router(telegram.router, prefix="/api/telegram", tags=["telegram"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
+app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
 
 
 @app.on_event("startup")
@@ -63,8 +70,9 @@ async def startup():
         else:
             logger.info(f"Admin user already exists: {settings.admin_email}")
 
-    # Start scheduler
+    # Start scheduler and load settings from database
     scheduler.start()
+    await scheduler.init_from_db()
     logger.info("Scheduler started")
 
 
