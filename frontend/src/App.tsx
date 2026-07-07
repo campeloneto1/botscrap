@@ -7,6 +7,7 @@ import Profiles from './pages/Profiles'
 import Keywords from './pages/Keywords'
 import TelegramGroups from './pages/TelegramGroups'
 import Settings from './pages/Settings'
+import Users from './pages/Users'
 import Layout from './components/Layout'
 
 function App() {
@@ -92,6 +93,18 @@ function App() {
             isAuthenticated ? (
               <Layout onLogout={() => setIsAuthenticated(false)}>
                 <TelegramGroups />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/users"
+          element={
+            isAuthenticated ? (
+              <Layout onLogout={() => setIsAuthenticated(false)}>
+                <Users />
               </Layout>
             ) : (
               <Navigate to="/login" replace />

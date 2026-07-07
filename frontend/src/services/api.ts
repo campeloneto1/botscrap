@@ -35,9 +35,9 @@ api.interceptors.response.use(
 )
 
 // Auth
-export const login = async (email: string, password: string) => {
+export const login = async (username: string, password: string) => {
   const formData = new FormData()
-  formData.append('username', email)
+  formData.append('username', username)
   formData.append('password', password)
   const response = await api.post('/auth/login', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -45,8 +45,52 @@ export const login = async (email: string, password: string) => {
   return response.data
 }
 
-export const register = async (email: string, password: string) => {
-  const response = await api.post('/auth/register', { email, password })
+export const register = async (username: string, password: string, email?: string) => {
+  const response = await api.post('/auth/register', { username, password, email })
+  return response.data
+}
+
+// Users (Admin only)
+export interface User {
+  id: number
+  username: string
+  email: string | null
+  is_active: boolean
+  is_admin: boolean
+  created_at: string
+}
+
+export interface UserListResponse {
+  users: User[]
+  total: number
+}
+
+export const getUsers = async (skip = 0, limit = 50, search?: string) => {
+  const params = new URLSearchParams()
+  params.append('skip', skip.toString())
+  params.append('limit', limit.toString())
+  if (search) params.append('search', search)
+  const response = await api.get(`/users?${params.toString()}`)
+  return response.data as UserListResponse
+}
+
+export const getUser = async (id: number) => {
+  const response = await api.get(`/users/${id}`)
+  return response.data as User
+}
+
+export const createUser = async (data: { username: string; password: string; email?: string; is_active?: boolean; is_admin?: boolean }) => {
+  const response = await api.post('/users', data)
+  return response.data as User
+}
+
+export const updateUser = async (id: number, data: { username?: string; email?: string; password?: string; is_active?: boolean; is_admin?: boolean }) => {
+  const response = await api.put(`/users/${id}`, data)
+  return response.data as User
+}
+
+export const deleteUser = async (id: number) => {
+  const response = await api.delete(`/users/${id}`)
   return response.data
 }
 

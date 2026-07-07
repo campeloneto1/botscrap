@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.api import auth, profiles, keywords, telegram, dashboard
+from app.api import auth, profiles, keywords, telegram, dashboard, users
 from app.api import settings as settings_api
 from app.api.settings import set_scheduler as set_settings_scheduler
 from app.db.database import engine, Base, async_session
@@ -44,6 +44,7 @@ app.include_router(keywords.router, prefix="/api/keywords", tags=["keywords"])
 app.include_router(telegram.router, prefix="/api/telegram", tags=["telegram"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
+app.include_router(users.router, prefix="/api/users", tags=["users"])
 
 
 @app.on_event("startup")
@@ -54,11 +55,12 @@ async def startup():
 
     # Create default admin user
     async with async_session() as db:
-        result = await db.execute(select(User).where(User.email == settings.admin_email))
+        result = await db.execute(select(User).where(User.username == "admin"))
         admin = result.scalar_one_or_none()
 
         if not admin:
             admin = User(
+                username="admin",
                 email=settings.admin_email,
                 hashed_password=get_password_hash(settings.admin_password),
                 is_active=True,
@@ -66,9 +68,9 @@ async def startup():
             )
             db.add(admin)
             await db.commit()
-            logger.info(f"Admin user created: {settings.admin_email}")
+            logger.info("Admin user created: admin")
         else:
-            logger.info(f"Admin user already exists: {settings.admin_email}")
+            logger.info("Admin user already exists: admin")
 
     # Start scheduler and load settings from database
     scheduler.start()

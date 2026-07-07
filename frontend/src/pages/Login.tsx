@@ -7,6 +7,7 @@ interface LoginProps {
 
 export default function Login({ onLogin }: LoginProps) {
   const [isRegister, setIsRegister] = useState(false)
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -19,9 +20,9 @@ export default function Login({ onLogin }: LoginProps) {
 
     try {
       if (isRegister) {
-        await register(email, password)
+        await register(username, password, email || undefined)
       }
-      const data = await login(email, password)
+      const data = await login(username, password)
       localStorage.setItem('token', data.access_token)
       onLogin()
     } catch (err: any) {
@@ -48,16 +49,32 @@ export default function Login({ onLogin }: LoginProps) {
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
+              {isRegister ? 'Username' : 'Username ou Email'}
             </label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder={isRegister ? 'seu_usuario' : 'usuario ou email'}
               required
             />
           </div>
+
+          {isRegister && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email (opcional)
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="seu@email.com"
+              />
+            </div>
+          )}
 
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-1">
