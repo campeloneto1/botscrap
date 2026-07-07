@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Posts from './pages/Posts'
@@ -9,16 +8,21 @@ import TelegramGroups from './pages/TelegramGroups'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
 import Layout from './components/Layout'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 
-function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+function AppRoutes() {
+  const { user, isAdmin, isLoading, setUser, refreshUser } = useAuth()
 
-  useEffect(() => {
-    const token = localStorage.getItem('token')
-    setIsAuthenticated(!!token)
-  }, [])
+  const handleLogin = async () => {
+    await refreshUser()
+  }
 
-  if (isAuthenticated === null) {
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    setUser(null)
+  }
+
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -26,104 +30,122 @@ function App() {
     )
   }
 
+  const isAuthenticated = !!user
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route
-          path="/login"
-          element={
-            isAuthenticated ? (
-              <Navigate to="/" replace />
-            ) : (
-              <Login onLogin={() => setIsAuthenticated(true)} />
-            )
-          }
-        />
-        <Route
-          path="/"
-          element={
-            isAuthenticated ? (
-              <Layout onLogout={() => setIsAuthenticated(false)}>
-                <Dashboard />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/posts"
-          element={
-            isAuthenticated ? (
-              <Layout onLogout={() => setIsAuthenticated(false)}>
-                <Posts />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/profiles"
-          element={
-            isAuthenticated ? (
-              <Layout onLogout={() => setIsAuthenticated(false)}>
-                <Profiles />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/keywords"
-          element={
-            isAuthenticated ? (
-              <Layout onLogout={() => setIsAuthenticated(false)}>
-                <Keywords />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/telegram"
-          element={
-            isAuthenticated ? (
-              <Layout onLogout={() => setIsAuthenticated(false)}>
-                <TelegramGroups />
-              </Layout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/users"
-          element={
-            isAuthenticated ? (
-              <Layout onLogout={() => setIsAuthenticated(false)}>
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          isAuthenticated ? (
+            <Navigate to="/" replace />
+          ) : (
+            <Login onLogin={handleLogin} />
+          )
+        }
+      />
+      <Route
+        path="/"
+        element={
+          isAuthenticated ? (
+            <Layout onLogout={handleLogout} isAdmin={isAdmin}>
+              <Dashboard />
+            </Layout>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/posts"
+        element={
+          isAuthenticated ? (
+            <Layout onLogout={handleLogout} isAdmin={isAdmin}>
+              <Posts />
+            </Layout>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/profiles"
+        element={
+          isAuthenticated ? (
+            <Layout onLogout={handleLogout} isAdmin={isAdmin}>
+              <Profiles />
+            </Layout>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/keywords"
+        element={
+          isAuthenticated ? (
+            <Layout onLogout={handleLogout} isAdmin={isAdmin}>
+              <Keywords />
+            </Layout>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/telegram"
+        element={
+          isAuthenticated ? (
+            <Layout onLogout={handleLogout} isAdmin={isAdmin}>
+              <TelegramGroups />
+            </Layout>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/users"
+        element={
+          isAuthenticated ? (
+            isAdmin ? (
+              <Layout onLogout={handleLogout} isAdmin={isAdmin}>
                 <Users />
               </Layout>
             ) : (
-              <Navigate to="/login" replace />
+              <Navigate to="/" replace />
             )
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            isAuthenticated ? (
-              <Layout onLogout={() => setIsAuthenticated(false)}>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          isAuthenticated ? (
+            isAdmin ? (
+              <Layout onLogout={handleLogout} isAdmin={isAdmin}>
                 <Settings />
               </Layout>
             ) : (
-              <Navigate to="/login" replace />
+              <Navigate to="/" replace />
             )
-          }
-        />
-      </Routes>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+    </Routes>
+  )
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </BrowserRouter>
   )
 }

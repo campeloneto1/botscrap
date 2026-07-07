@@ -280,27 +280,188 @@ class ScrapingScheduler:
         logger.info("Starting scraping job...")
         self.last_run = datetime.utcnow()
 
+        # Get settings and profile IDs first
         async with async_session() as db:
-            # Get app settings from database
             app_settings = await get_app_settings(db)
             scrape_delay = get_scrape_delay(app_settings)
 
-            # Get all active profiles
+            # Get all active profiles with relationships loaded
+            from sqlalchemy.orm import selectinload
             result = await db.execute(
-                select(Profile).where(Profile.active == True)
+                select(Profile)
+                .options(selectinload(Profile.telegram_group))
+                .where(Profile.active == True)
             )
             profiles = result.scalars().all()
 
-            logger.info(f"Found {len(profiles)} active profiles to scrape")
+            # Extract profile data to avoid lazy loading issues
+            profile_ids = [(p.id, p.username, p.platform, p.user_id,
+                           p.telegram_group_id,
+                           p.telegram_group.chat_id if p.telegram_group else None)
+                          for p in profiles]
 
-            for profile in profiles:
-                await self.scrape_profile(db, profile, app_settings)
-                # Delay aleatório entre perfis (mais natural, evita rate limit)
-                delay = random.uniform(scrape_delay, scrape_delay * 2)
-                logger.info(f"Waiting {delay:.1f}s before next profile...")
-                await asyncio.sleep(delay)
+        logger.info(f"Found {len(profile_ids)} active profiles to scrape")
+
+        # Process each profile with its own session
+        for profile_data in profile_ids:
+            profile_id, username, platform, user_id, tg_group_id, chat_id = profile_data
+            try:
+                async with async_session() as db:
+                    await self._scrape_profile_by_data(
+                        db, profile_id, username, platform, user_id,
+                        tg_group_id, chat_id, app_settings
+                    )
+            except Exception as e:
+                logger.error(f"Error scraping {username}: {e}")
+
+            # Delay aleatório entre perfis (mais natural, evita rate limit)
+            delay = random.uniform(scrape_delay, scrape_delay * 2)
+            logger.info(f"Waiting {delay:.1f}s before next profile...")
+            await asyncio.sleep(delay)
 
         logger.info("Scraping job completed")
+
+    async def _scrape_profile_by_data(
+        self, db: AsyncSession, profile_id: int, username: str, platform: str,
+        user_id: int, telegram_group_id: int, chat_id: str,
+        app_settings: AppSettings
+    ):
+        """Scrape a single profile using extracted data (avoids lazy loading issues)."""
+        logger.info(f"Scraping {platform}/@{username}")
+
+        scraper = self.scrapers.get(platform)
+        if not scraper:
+            logger.warning(f"No scraper for platform {platform}")
+            return
+
+        # Get user's keywords
+        keywords_result = await db.execute(
+            select(Keyword).where(
+                Keyword.user_id == user_id,
+                Keyword.active == True,
+            )
+        )
+        keywords = [
+            {"word": k.word, "priority": k.priority}
+            for k in keywords_result.scalars().all()
+        ]
+
+        # Sempre busca posts das últimas X horas (baseado no intervalo de scraping)
+        interval_hours = get_scrape_interval(app_settings)
+        since = datetime.utcnow() - timedelta(hours=interval_hours)
+
+        # Get posts
+        posts = await scraper.get_recent_posts(
+            username,
+            limit=20,
+            since=since,
+        )
+
+        posts_found = len(posts)
+        posts_sent = 0
+
+        # Process posts
+        for post in posts:
+            # Check if already processed
+            existing = await db.execute(
+                select(ProcessedPost).where(
+                    ProcessedPost.profile_id == profile_id,
+                    ProcessedPost.post_id == post["post_id"],
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
+
+            # Check for keywords
+            content = post.get("content", "")
+            has_keyword, matched, priority = find_keywords(content, keywords)
+
+            # Generate AI summary for long posts (if enabled)
+            summary = None
+            ai_enabled = is_ai_summary_enabled(app_settings)
+            if ai_enabled and content and len(content) > 300:
+                try:
+                    summary = await generate_summary(content, app_settings)
+                except Exception as e:
+                    logger.warning(f"Failed to generate summary: {e}")
+
+            # Save to database
+            processed_post = ProcessedPost(
+                profile_id=profile_id,
+                post_id=post["post_id"],
+                content=content,
+                summary=summary,
+                media_url=post.get("media_url"),
+                has_keyword=has_keyword,
+                matched_keywords=matched if matched else None,
+            )
+            db.add(processed_post)
+
+            # Add summary to post dict for telegram
+            if summary:
+                post["summary"] = summary
+
+            # Send to Telegram
+            if telegram_group_id and chat_id:
+                try:
+                    telegram_token = get_telegram_token(app_settings)
+                    bot = TelegramBot(token=telegram_token)
+
+                    if has_keyword and priority >= 2:
+                        await bot.send_alert(
+                            chat_id=chat_id,
+                            post=post,
+                            profile_username=username,
+                            platform=platform,
+                            matched_keywords=matched,
+                            priority=priority,
+                        )
+                    else:
+                        await bot.send_post(
+                            chat_id=chat_id,
+                            post=post,
+                            profile_username=username,
+                            platform=platform,
+                            matched_keywords=matched if has_keyword else None,
+                        )
+
+                    processed_post.sent_at = datetime.utcnow()
+                    posts_sent += 1
+                except Exception as e:
+                    logger.error(f"Failed to send to Telegram: {e}")
+
+        # Notify if no posts found
+        if posts_found == 0 and telegram_group_id and chat_id:
+            try:
+                telegram_token = get_telegram_token(app_settings)
+                bot = TelegramBot(token=telegram_token)
+                await bot.send_no_posts_found(
+                    chat_id=chat_id,
+                    profile_username=username,
+                    platform=platform,
+                    hours=interval_hours,
+                )
+            except Exception as e:
+                logger.error(f"Failed to send no-posts notification: {e}")
+
+        # Update last scraped
+        profile_obj = (await db.execute(
+            select(Profile).where(Profile.id == profile_id)
+        )).scalar_one()
+        profile_obj.last_scraped = datetime.utcnow()
+
+        # Log
+        log = ScrapingLog(
+            profile_id=profile_id,
+            status="success",
+            message=f"Scraped {username}",
+            posts_found=posts_found,
+            posts_sent=posts_sent,
+        )
+        db.add(log)
+
+        await db.commit()
+        logger.info(f"Processed {posts_found} posts, sent {posts_sent} to Telegram")
 
     async def scrape_profile(self, db: AsyncSession, profile: Profile, app_settings: AppSettings = None):
         """Scrape a single profile."""

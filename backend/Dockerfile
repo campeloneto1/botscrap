@@ -2,10 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright and PostgreSQL client
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
+    postgresql-client \
     # Playwright dependencies
     libnss3 \
     libnspr4 \
@@ -40,5 +41,5 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Run the application with auto-reload for development
+# Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

@@ -188,6 +188,11 @@ export const getStats = async () => {
   return response.data
 }
 
+export const runManualScrape = async (hours: number = 3) => {
+  const response = await api.post(`/dashboard/run-scrape?hours=${hours}`)
+  return response.data
+}
+
 export const getLogs = async (limit = 50) => {
   const response = await api.get(`/dashboard/logs?limit=${limit}`)
   return response.data

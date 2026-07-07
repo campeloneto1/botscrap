@@ -4,9 +4,10 @@ import { LayoutDashboard, Users, Hash, Send, LogOut, FileText, Settings, UserCog
 interface LayoutProps {
   children: React.ReactNode
   onLogout: () => void
+  isAdmin: boolean
 }
 
-export default function Layout({ children, onLogout }: LayoutProps) {
+export default function Layout({ children, onLogout, isAdmin }: LayoutProps) {
   const location = useLocation()
 
   const handleLogout = () => {
@@ -15,14 +16,16 @@ export default function Layout({ children, onLogout }: LayoutProps) {
   }
 
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/posts', label: 'Posts', icon: FileText },
-    { path: '/profiles', label: 'Perfis', icon: Users },
-    { path: '/keywords', label: 'Palavras-chave', icon: Hash },
-    { path: '/telegram', label: 'Telegram', icon: Send },
-    { path: '/users', label: 'Usuários', icon: UserCog },
-    { path: '/settings', label: 'Configurações', icon: Settings },
+    { path: '/', label: 'Dashboard', icon: LayoutDashboard, adminOnly: false },
+    { path: '/posts', label: 'Posts', icon: FileText, adminOnly: false },
+    { path: '/profiles', label: 'Perfis', icon: Users, adminOnly: false },
+    { path: '/keywords', label: 'Palavras-chave', icon: Hash, adminOnly: false },
+    { path: '/telegram', label: 'Telegram', icon: Send, adminOnly: false },
+    { path: '/users', label: 'Usuários', icon: UserCog, adminOnly: true },
+    { path: '/settings', label: 'Configurações', icon: Settings, adminOnly: true },
   ]
+
+  const visibleNavItems = navItems.filter(item => !item.adminOnly || isAdmin)
 
   return (
     <div className="min-h-screen flex">
@@ -34,7 +37,7 @@ export default function Layout({ children, onLogout }: LayoutProps) {
         </div>
 
         <nav className="mt-8">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon
             const isActive = location.pathname === item.path
             return (

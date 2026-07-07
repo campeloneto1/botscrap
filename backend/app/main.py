@@ -55,7 +55,12 @@ async def startup():
 
     # Create default admin user
     async with async_session() as db:
-        result = await db.execute(select(User).where(User.username == "admin"))
+        # Verifica por username OU email para evitar duplicatas
+        result = await db.execute(
+            select(User).where(
+                (User.username == "admin") | (User.email == settings.admin_email)
+            )
+        )
         admin = result.scalar_one_or_none()
 
         if not admin:
@@ -70,7 +75,13 @@ async def startup():
             await db.commit()
             logger.info("Admin user created: admin")
         else:
-            logger.info("Admin user already exists: admin")
+            # Garante que o usuário existente é admin
+            if not admin.is_admin:
+                admin.is_admin = True
+                await db.commit()
+                logger.info(f"User '{admin.username}' promoted to admin")
+            else:
+                logger.info(f"Admin user already exists: {admin.username}")
 
     # Start scheduler and load settings from database
     scheduler.start()

@@ -1,11 +1,31 @@
-import { useQuery } from '@tanstack/react-query'
-import { getStats, getPosts } from '../services/api'
-import { Users, Hash, Send, FileText, AlertTriangle, Clock, Activity } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getStats, getPosts, runManualScrape } from '../services/api'
+import { Users, Hash, Send, FileText, AlertTriangle, Clock, Activity, Play, Loader2 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { useState } from 'react'
 
 export default function Dashboard() {
+  const { isAdmin } = useAuth()
+  const queryClient = useQueryClient()
+  const [scrapeResult, setScrapeResult] = useState<string | null>(null)
+
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['stats'],
     queryFn: getStats,
+  })
+
+  const scrapeMutation = useMutation({
+    mutationFn: () => runManualScrape(3),
+    onSuccess: (data) => {
+      setScrapeResult(`Verificação concluída: ${data.posts_found} posts encontrados, ${data.posts_sent} enviados`)
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      queryClient.invalidateQueries({ queryKey: ['recent-posts'] })
+      setTimeout(() => setScrapeResult(null), 5000)
+    },
+    onError: (error: any) => {
+      setScrapeResult(`Erro: ${error.response?.data?.detail || error.message}`)
+      setTimeout(() => setScrapeResult(null), 5000)
+    },
   })
 
   const { data: recentPosts, isLoading: postsLoading } = useQuery({
@@ -43,27 +63,52 @@ export default function Dashboard() {
 
         {/* Scheduler Status */}
         {scheduler && (
-          <div className={`flex items-center gap-3 px-4 py-2 rounded-lg ${
-            scheduler.is_running ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-          }`}>
-            <div className="flex items-center gap-2">
-              <Activity
-                size={18}
-                className={scheduler.is_running ? 'text-green-600 animate-pulse' : 'text-red-600'}
-              />
-              <span className={`font-medium ${scheduler.is_running ? 'text-green-700' : 'text-red-700'}`}>
-                {scheduler.is_running ? 'Scheduler Ativo' : 'Scheduler Parado'}
-              </span>
-            </div>
-            {scheduler.is_running && scheduler.next_run && (
-              <div className="flex items-center gap-1 text-sm text-gray-600 border-l border-gray-300 pl-3">
-                <Clock size={14} />
-                <span>Próxima verificação: {formatDateTime(scheduler.next_run)}</span>
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 px-4 py-2 rounded-lg ${
+              scheduler.is_running ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Activity
+                  size={18}
+                  className={scheduler.is_running ? 'text-green-600 animate-pulse' : 'text-red-600'}
+                />
+                <span className={`font-medium ${scheduler.is_running ? 'text-green-700' : 'text-red-700'}`}>
+                  {scheduler.is_running ? 'Scheduler Ativo' : 'Scheduler Parado'}
+                </span>
               </div>
+              {scheduler.is_running && scheduler.next_run && (
+                <div className="flex items-center gap-1 text-sm text-gray-600 border-l border-gray-300 pl-3">
+                  <Clock size={14} />
+                  <span>Próxima verificação: {formatDateTime(scheduler.next_run)}</span>
+                </div>
+              )}
+            </div>
+            {isAdmin && (
+              <button
+                onClick={() => scrapeMutation.mutate()}
+                disabled={scrapeMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {scrapeMutation.isPending ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Play size={18} />
+                )}
+                {scrapeMutation.isPending ? 'Verificando...' : 'Verificar Agora'}
+              </button>
             )}
           </div>
         )}
       </div>
+
+      {/* Scrape Result Message */}
+      {scrapeResult && (
+        <div className={`mb-4 p-3 rounded-lg ${
+          scrapeResult.startsWith('Erro') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'
+        }`}>
+          {scrapeResult}
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
