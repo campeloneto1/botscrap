@@ -5,9 +5,12 @@ import { useAuth } from '../contexts/AuthContext'
 import { useState } from 'react'
 
 export default function Dashboard() {
-  const { isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
   const queryClient = useQueryClient()
   const [scrapeResult, setScrapeResult] = useState<string | null>(null)
+
+  // Debug - verificar no console do navegador (F12)
+  console.log('Dashboard auth:', { user, isAdmin })
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['stats'],
