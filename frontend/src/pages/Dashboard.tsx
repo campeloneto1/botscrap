@@ -4,16 +4,12 @@ import {
   runManualScrape,
   getScrapeStatus,
   getStatsOverview,
-  getPostsTimeline,
   getRecentPosts,
   getHealthStatus,
   getFailedPosts,
   retryFailedPosts,
 } from '../services/api'
 import {
-  Users,
-  Hash,
-  Send,
   FileText,
   AlertTriangle,
   Clock,
@@ -47,13 +43,6 @@ export default function Dashboard() {
     queryKey: ['stats-overview'],
     queryFn: getStatsOverview,
     refetchInterval: 30000, // Refresh every 30s
-  })
-
-  // Timeline data
-  const { data: timeline } = useQuery({
-    queryKey: ['stats-timeline'],
-    queryFn: () => getPostsTimeline(7),
-    refetchInterval: 60000, // Refresh every minute
   })
 
   // Recent posts with keywords
