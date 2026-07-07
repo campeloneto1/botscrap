@@ -1,5 +1,7 @@
 from typing import List, Optional
 from datetime import datetime, timedelta
+import asyncio
+import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,31 +10,63 @@ from app.db.database import get_db
 from app.db.models import User, Profile, ProcessedPost, Keyword, TelegramGroup, ScrapingLog
 from app.core.security import get_current_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Import scheduler instance from main (will be set after app starts)
 _scheduler = None
+_manual_scrape_running = False
+_manual_scrape_result = None
+_manual_scrape_progress = None  # Track progress in real-time
 
 def set_scheduler(scheduler):
     global _scheduler
     _scheduler = scheduler
 
 def get_scheduler_status():
-    if _scheduler:
-        return _scheduler.get_status()
-    return {
+    status = {
         "is_running": False,
         "last_run": None,
         "next_run": None,
         "interval_hours": None,
     }
-
-
-async def run_manual_scrape(hours: int = 3):
-    """Run a manual scrape with custom hours period."""
     if _scheduler:
-        return await _scheduler.run_manual_scrape(hours)
-    return None
+        status = _scheduler.get_status()
+
+    # Add manual scrape status
+    status["manual_scrape_running"] = _manual_scrape_running
+    return status
+
+
+async def run_manual_scrape_background(hours: int = 3):
+    """Run a manual scrape in background with progress tracking."""
+    global _manual_scrape_running, _manual_scrape_result, _manual_scrape_progress
+    _manual_scrape_running = True
+    _manual_scrape_result = None
+    _manual_scrape_progress = {
+        "status": "starting",
+        "profiles_total": 0,
+        "profiles_completed": 0,
+        "current_profiles": [],
+    }
+
+    try:
+        if _scheduler:
+            result = await _scheduler.run_manual_scrape(hours)
+            _manual_scrape_result = result
+            _manual_scrape_progress = {
+                "status": "completed",
+                "profiles_total": result.get("profiles_total", 0),
+                "profiles_completed": result.get("profiles_scraped", 0),
+                "current_profiles": [],
+            }
+            logger.info(f"Manual scrape completed: {result}")
+    except Exception as e:
+        logger.error(f"Manual scrape error: {e}")
+        _manual_scrape_result = {"success": False, "error": str(e)}
+        _manual_scrape_progress = {"status": "error", "error": str(e)}
+    finally:
+        _manual_scrape_running = False
 
 
 @router.get("/stats")
@@ -108,18 +142,43 @@ async def trigger_manual_scrape(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Trigger a manual scrape for testing purposes."""
+    """Trigger a manual scrape in background."""
+    from fastapi import HTTPException, status
+
     if not current_user.is_admin:
-        from fastapi import HTTPException, status
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can trigger manual scrapes",
         )
 
-    result = await run_manual_scrape(hours)
-    if result is None:
+    if _manual_scrape_running:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A manual scrape is already running",
+        )
+
+    if not _scheduler:
         return {"success": False, "error": "Scheduler not available"}
-    return result
+
+    # Run in background - return immediately
+    asyncio.create_task(run_manual_scrape_background(hours))
+
+    return {
+        "success": True,
+        "message": "Scrape started in background",
+        "hours": hours,
+    }
+
+
+@router.get("/scrape-status")
+async def get_scrape_status(
+    current_user: User = Depends(get_current_user),
+):
+    """Get the status of manual scrape."""
+    return {
+        "running": _manual_scrape_running,
+        "result": _manual_scrape_result,
+    }
 
 
 @router.get("/logs")

@@ -193,6 +193,11 @@ export const runManualScrape = async (hours: number = 3) => {
   return response.data
 }
 
+export const getScrapeStatus = async () => {
+  const response = await api.get('/dashboard/scrape-status')
+  return response.data
+}
+
 export const getLogs = async (limit = 50) => {
   const response = await api.get(`/dashboard/logs?limit=${limit}`)
   return response.data
@@ -247,6 +252,100 @@ export const updateAppSettings = async (data: Partial<AppSettings>) => {
 
 export const testTelegramConnection = async () => {
   const response = await api.post('/settings/test-telegram')
+  return response.data
+}
+
+// Stats
+export const getStatsOverview = async () => {
+  const response = await api.get('/stats/overview')
+  return response.data
+}
+
+export const getPostsTimeline = async (days: number = 7) => {
+  const response = await api.get(`/stats/timeline?days=${days}`)
+  return response.data
+}
+
+export const getRecentPosts = async (limit: number = 10) => {
+  const response = await api.get(`/stats/recent-posts?limit=${limit}`)
+  return response.data
+}
+
+export const getScrapingLogs = async (limit: number = 10) => {
+  const response = await api.get(`/stats/scraping-logs?limit=${limit}`)
+  return response.data
+}
+
+// Health
+export const getHealthStatus = async () => {
+  const response = await api.get('/health')
+  return response.data
+}
+
+export const getSystemMetrics = async () => {
+  const response = await api.get('/health/metrics')
+  return response.data
+}
+
+// Posts search/filter/export/retry
+export interface PostSearchFilters {
+  query?: string
+  platform?: string
+  profile_id?: number
+  status?: string
+  has_keyword?: boolean
+  date_from?: string
+  date_to?: string
+  limit?: number
+  offset?: number
+}
+
+export const searchPosts = async (filters: PostSearchFilters = {}) => {
+  const params = new URLSearchParams()
+  if (filters.query) params.append('query', filters.query)
+  if (filters.platform) params.append('platform', filters.platform)
+  if (filters.profile_id) params.append('profile_id', filters.profile_id.toString())
+  if (filters.status) params.append('status', filters.status)
+  if (filters.has_keyword !== undefined) params.append('has_keyword', filters.has_keyword.toString())
+  if (filters.date_from) params.append('date_from', filters.date_from)
+  if (filters.date_to) params.append('date_to', filters.date_to)
+  if (filters.limit) params.append('limit', filters.limit.toString())
+  if (filters.offset) params.append('offset', filters.offset.toString())
+
+  const response = await api.get(`/posts/search?${params.toString()}`)
+  return response.data
+}
+
+export const exportPosts = async (filters: PostSearchFilters = {}) => {
+  const params = new URLSearchParams()
+  if (filters.query) params.append('query', filters.query)
+  if (filters.platform) params.append('platform', filters.platform)
+  if (filters.status) params.append('status', filters.status)
+  if (filters.has_keyword !== undefined) params.append('has_keyword', filters.has_keyword.toString())
+  if (filters.date_from) params.append('date_from', filters.date_from)
+  if (filters.date_to) params.append('date_to', filters.date_to)
+
+  const response = await api.get(`/posts/export?${params.toString()}`, {
+    responseType: 'blob',
+  })
+
+  // Download file
+  const url = window.URL.createObjectURL(new Blob([response.data]))
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `posts_${new Date().toISOString().split('T')[0]}.csv`)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+export const retryFailedPosts = async (post_ids?: number[]) => {
+  const response = await api.post('/posts/retry-failed', { post_ids })
+  return response.data
+}
+
+export const getFailedPosts = async (limit: number = 50, offset: number = 0) => {
+  const response = await api.get(`/posts/failed?limit=${limit}&offset=${offset}`)
   return response.data
 }
 

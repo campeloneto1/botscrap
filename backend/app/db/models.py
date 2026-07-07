@@ -64,8 +64,10 @@ class ProcessedPost(Base):
     content = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)  # AI-generated summary
     media_url = Column(Text, nullable=True)
+    ocr_text = Column(Text, nullable=True)  # Text extracted from image via OCR
     has_keyword = Column(Boolean, default=False)
     matched_keywords = Column(JSON, nullable=True)
+    status = Column(String(20), default="pending")  # pending, processing, completed, failed
     sent_at = Column(DateTime, nullable=True)
     processed_at = Column(DateTime, default=datetime.utcnow)
 
@@ -98,6 +100,9 @@ class ScrapingLog(Base):
     posts_sent = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Relationships
+    profile = relationship("Profile")
+
 
 class AppSettings(Base):
     """Global application settings (singleton - only one row)."""
@@ -125,3 +130,15 @@ class AppSettings(Base):
     enable_ai_summary = Column(Boolean, default=True)
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class OCRCache(Base):
+    """Cache for OCR results to avoid reprocessing same images."""
+    __tablename__ = "ocr_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    image_url = Column(String(500), unique=True, index=True, nullable=False)
+    ocr_text = Column(Text, nullable=True)
+    language = Column(String(10), default="por+eng")  # Tesseract language codes
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used = Column(DateTime, default=datetime.utcnow)
