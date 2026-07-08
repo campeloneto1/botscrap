@@ -49,6 +49,23 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/botscrap
     command: python -m app.core.scheduler
 
+  telegram-bot:
+    build: ./backend
+    container_name: botscrap-telegram-bot
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/botscrap
+    volumes:
+      - ./backend:/app
+    command: python run_telegram_bot.py
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     container_name: botscrap-frontend

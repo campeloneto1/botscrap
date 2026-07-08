@@ -239,12 +239,25 @@ async def test_scrape_profile(
 @router.post("/{profile_id}/test-telegram")
 async def test_scrape_and_send_telegram(
     profile_id: int,
+    hours: int = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Scrape profile and send posts to Telegram."""
     from datetime import datetime, timedelta
     from sqlalchemy.orm import selectinload
+    from app.db.models import AppSettings
+
+    # Se não informar horas, busca da config do banco
+    if hours is None:
+        settings_result = await db.execute(select(AppSettings))
+        app_settings = settings_result.scalar_one_or_none()
+
+        if app_settings:
+            hours = app_settings.scrape_interval_hours
+        else:
+            # Fallback se não existir config no banco
+            hours = 6
 
     result = await db.execute(
         select(Profile)
@@ -272,7 +285,7 @@ async def test_scrape_and_send_telegram(
     from app.scrapers.instagram_playwright import InstagramPlaywrightScraper
     from app.telegram.bot import TelegramBot
     from app.utils.keywords import find_keywords
-    from app.db.models import Keyword
+    from app.db.models import Keyword, ProcessedPost
 
     if profile.platform != "instagram":
         raise HTTPException(
@@ -295,7 +308,7 @@ async def test_scrape_and_send_telegram(
 
         # Scrape posts
         scraper = InstagramPlaywrightScraper()
-        since = datetime.utcnow() - timedelta(days=1)  # Últimas 24h para teste
+        since = datetime.utcnow() - timedelta(hours=hours)
         posts = await asyncio.wait_for(
             scraper.get_recent_posts(profile.username, limit=3, since=since),
             timeout=60.0
@@ -305,15 +318,32 @@ async def test_scrape_and_send_telegram(
             return {
                 "success": False,
                 "profile": profile.username,
-                "error": "Nenhum post encontrado nas últimas 24 horas",
+                "error": f"Nenhum post encontrado nas últimas {hours} horas",
             }
 
         # Send to Telegram
         bot = TelegramBot()
         chat_id = profile.telegram_group.chat_id
         sent_count = 0
+        skipped_count = 0
 
-        for post in posts[:1]:  # Envia apenas 1 post no teste
+        for post in posts:  # Envia todos os posts encontrados
+            post_id = post.get("id", "")
+
+            # Verifica se o post já foi processado
+            existing_post = await db.execute(
+                select(ProcessedPost).where(
+                    ProcessedPost.profile_id == profile.id,
+                    ProcessedPost.post_id == post_id,
+                )
+            )
+            existing = existing_post.scalar_one_or_none()
+
+            if existing:
+                # Post já foi processado, pula
+                skipped_count += 1
+                continue
+
             has_keyword, matched, priority = find_keywords(
                 post.get("content", ""),
                 keywords,
@@ -340,13 +370,35 @@ async def test_scrape_and_send_telegram(
             if success:
                 sent_count += 1
 
+                # Salva o post no banco de dados
+                processed_post = ProcessedPost(
+                    profile_id=profile.id,
+                    post_id=post_id,
+                    content=post.get("content", ""),
+                    summary=post.get("summary"),
+                    media_url=post.get("media_url"),
+                    ocr_text=post.get("ocr_text"),
+                    has_keyword=has_keyword,
+                    matched_keywords=matched if has_keyword else None,
+                    status="completed",
+                    sent_at=datetime.utcnow(),
+                    processed_at=datetime.utcnow(),
+                )
+                db.add(processed_post)
+
+        # Atualiza o last_scraped do perfil
+        profile.last_scraped = datetime.utcnow()
+        await db.commit()
+
         return {
             "success": True,
             "profile": profile.username,
             "posts_found": len(posts),
             "posts_sent": sent_count,
+            "posts_skipped": skipped_count,
             "telegram_group": profile.telegram_group.name,
             "keywords_matched": matched if has_keyword else [],
+            "hours": hours,
         }
 
     except asyncio.TimeoutError:

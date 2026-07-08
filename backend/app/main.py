@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.api import auth, profiles, keywords, telegram, dashboard, users, stats, health, posts
+from app.api import auth, profiles, keywords, telegram, dashboard, users, stats, health, posts, search
 from app.api import settings as settings_api
 from app.api.settings import set_scheduler as set_settings_scheduler
 from app.db.database import engine, Base, async_session
@@ -45,6 +45,7 @@ app.include_router(telegram.router, prefix="/api/telegram", tags=["telegram"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(stats.router)
 app.include_router(health.router)
 app.include_router(posts.router)
