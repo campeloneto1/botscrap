@@ -1,11 +1,16 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 class Settings(BaseSettings):
     # App
     app_name: str = "BotScrap"
     debug: bool = False
+
+    # Timezone
+    timezone: str = "America/Fortaleza"
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@db:5432/botscrap"
@@ -54,3 +59,24 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_local_now() -> datetime:
+    """Retorna a data/hora atual no timezone configurado (America/Fortaleza)."""
+    settings = get_settings()
+    tz = ZoneInfo(settings.timezone)
+    return datetime.now(tz)
+
+
+def get_local_today_start() -> datetime:
+    """Retorna o início do dia atual no timezone configurado."""
+    now = get_local_now()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def get_local_now_naive() -> datetime:
+    """
+    Retorna a data/hora atual no timezone configurado sem info de timezone.
+    Usado para compatibilidade com colunas DateTime do SQLAlchemy.
+    """
+    return get_local_now().replace(tzinfo=None)

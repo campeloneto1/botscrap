@@ -8,7 +8,7 @@ import instaloader
 from instaloader import Profile, Post
 
 from app.scrapers.base import BaseScraper
-from app.config import get_settings
+from app.config import get_settings, get_local_now_naive
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -82,7 +82,7 @@ class InstagramScraper(BaseScraper):
         posts = []
 
         if since is None:
-            since = datetime.utcnow() - timedelta(days=1)
+            since = get_local_now_naive() - timedelta(days=1)
 
         try:
             # Try to login for better rate limits

@@ -9,7 +9,7 @@ import logging
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeout
 
 from app.scrapers.base import BaseScraper
-from app.config import get_settings
+from app.config import get_settings, get_local_now_naive
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -178,7 +178,7 @@ class InstagramPlaywrightScraper(BaseScraper):
         posts = []
 
         if since is None:
-            since = datetime.utcnow() - timedelta(days=1)
+            since = get_local_now_naive() - timedelta(days=1)
 
         browser = None
         page = None
@@ -302,7 +302,7 @@ class InstagramPlaywrightScraper(BaseScraper):
 
             # Try to extract date from the page
             time_elem = await page.query_selector('time[datetime]')
-            created_at = datetime.utcnow()
+            created_at = get_local_now_naive()
             if time_elem:
                 datetime_str = await time_elem.get_attribute("datetime")
                 if datetime_str:
@@ -423,7 +423,7 @@ class InstagramPlaywrightScraper(BaseScraper):
                                 post_data = await self._get_post_details(
                                     browser,
                                     shortcode,
-                                    datetime.utcnow() - timedelta(days=30)  # Last 30 days
+                                    get_local_now_naive() - timedelta(days=30)  # Last 30 days
                                 )
 
                                 if post_data:

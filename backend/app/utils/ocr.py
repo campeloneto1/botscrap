@@ -6,6 +6,7 @@ Includes caching to avoid reprocessing the same images.
 import logging
 import io
 from datetime import datetime
+from app.config import get_local_now_naive
 from typing import Optional, List, Tuple
 import httpx
 from PIL import Image
@@ -92,7 +93,7 @@ async def extract_text_from_url(url: str, lang: str = 'por+eng', use_cache: bool
                 if cached:
                     logger.debug(f"OCR cache hit for {url[:100]}")
                     # Update last_used
-                    cached.last_used = datetime.utcnow()
+                    cached.last_used = get_local_now_naive()
                     await db.commit()
                     return cached.ocr_text or ""
 

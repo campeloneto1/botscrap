@@ -53,9 +53,10 @@ app.include_router(posts.router)
 
 @app.on_event("startup")
 async def startup():
-    # Create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Run migrations (creates tables and adds new columns)
+    from migrate import migrate
+    await migrate()
+    logger.info("Database migrations completed")
 
     # Create default admin user
     async with async_session() as db:

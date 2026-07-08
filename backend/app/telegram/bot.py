@@ -140,6 +140,20 @@ class TelegramBot:
             lines.append(display_content)
             lines.append("")
 
+        # Video transcript if available
+        video_transcript = post.get("video_transcript")
+        if video_transcript:
+            lines.append("🎬 <b>Transcrição do vídeo:</b>")
+            # Truncate if too long
+            if len(video_transcript) > 500:
+                transcript_display = video_transcript[:500] + "..."
+            else:
+                transcript_display = video_transcript
+            if matched_keywords:
+                transcript_display = self._highlight_keywords(transcript_display, matched_keywords)
+            lines.append(f"<i>{transcript_display}</i>")
+            lines.append("")
+
         # Link
         if post.get("profile_url"):
             lines.append(f"🔗 <a href=\"{post['profile_url']}\">Ver post original</a>")
@@ -208,6 +222,19 @@ class TelegramBot:
             # Send full content with highlighted keywords
             display_content = self._highlight_keywords(content, matched_keywords)
             lines.append(display_content)
+            lines.append("")
+
+        # Video transcript if available
+        video_transcript = post.get("video_transcript")
+        if video_transcript:
+            lines.append("🎬 <b>Transcrição do vídeo:</b>")
+            # Truncate if too long
+            if len(video_transcript) > 500:
+                transcript_display = video_transcript[:500] + "..."
+            else:
+                transcript_display = video_transcript
+            transcript_display = self._highlight_keywords(transcript_display, matched_keywords)
+            lines.append(f"<i>{transcript_display}</i>")
             lines.append("")
 
         # Link

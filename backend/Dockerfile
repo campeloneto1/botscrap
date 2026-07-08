@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for Playwright, PostgreSQL client and Tesseract OCR
+# Install system dependencies for Playwright, PostgreSQL client, Tesseract OCR and FFmpeg
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-por \
     tesseract-ocr-eng \
+    # FFmpeg for video/audio processing (Whisper transcription)
+    ffmpeg \
     # Playwright dependencies
     libnss3 \
     libnspr4 \

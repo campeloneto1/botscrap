@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.db.models import User, Profile, ProcessedPost, Keyword, TelegramGroup, ScrapingLog
 from app.core.security import get_current_user
+from app.config import get_local_today_start
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -101,8 +102,8 @@ async def get_stats(
     )
     total_groups = groups_result.scalar() or 0
 
-    # Posts today
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Posts today (usando timezone America/Fortaleza)
+    today_start = get_local_today_start()
     posts_today_result = await db.execute(
         select(func.count(ProcessedPost.id))
         .join(Profile)

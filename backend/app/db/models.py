@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, T
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
+from app.config import get_local_now_naive
 
 
 class User(Base):
@@ -14,7 +15,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_local_now_naive)
 
     # Relationships
     profiles = relationship("Profile", back_populates="user", cascade="all, delete-orphan")
@@ -30,7 +31,7 @@ class TelegramGroup(Base):
     chat_id = Column(String(100), nullable=False)
     name = Column(String(255), nullable=False)
     active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_local_now_naive)
 
     # Relationships
     user = relationship("User", back_populates="telegram_groups")
@@ -47,7 +48,7 @@ class Profile(Base):
     username = Column(String(255), nullable=False)
     active = Column(Boolean, default=True)
     last_scraped = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_local_now_naive)
 
     # Relationships
     user = relationship("User", back_populates="profiles")
@@ -61,15 +62,18 @@ class ProcessedPost(Base):
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False)
     post_id = Column(String(255), nullable=False)  # ID único da rede social
+    post_url = Column(Text, nullable=True)  # URL do post original
     content = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)  # AI-generated summary
     media_url = Column(Text, nullable=True)
+    is_video = Column(Boolean, default=False)  # Se o post é um vídeo
     ocr_text = Column(Text, nullable=True)  # Text extracted from image via OCR
+    video_transcript = Column(Text, nullable=True)  # Transcrição do áudio do vídeo (Whisper)
     has_keyword = Column(Boolean, default=False)
     matched_keywords = Column(JSON, nullable=True)
     status = Column(String(20), default="pending")  # pending, processing, completed, failed
     sent_at = Column(DateTime, nullable=True)
-    processed_at = Column(DateTime, default=datetime.utcnow)
+    processed_at = Column(DateTime, default=get_local_now_naive)
 
     # Relationships
     profile = relationship("Profile", back_populates="posts")
@@ -83,7 +87,7 @@ class Keyword(Base):
     word = Column(String(255), nullable=False)
     priority = Column(Integer, default=1)  # 1=normal, 2=importante, 3=urgente
     active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_local_now_naive)
 
     # Relationships
     user = relationship("User", back_populates="keywords")
@@ -98,7 +102,7 @@ class ScrapingLog(Base):
     message = Column(Text, nullable=True)
     posts_found = Column(Integer, default=0)
     posts_sent = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_local_now_naive)
 
     # Relationships
     profile = relationship("Profile")
@@ -137,7 +141,12 @@ class AppSettings(Base):
     groq_api_key = Column(String(255), nullable=True)
     enable_ai_summary = Column(Boolean, default=True)
 
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Notificações
+    notify_no_posts = Column(Boolean, default=True)  # Notificar quando não encontrar posts
+    show_profiles_in_no_posts = Column(Boolean, default=True)  # Mostrar lista de perfis na msg "sem posts"
+    send_only_with_keywords = Column(Boolean, default=False)  # Só enviar posts com palavras-chave
+
+    updated_at = Column(DateTime, default=get_local_now_naive, onupdate=get_local_now_naive)
 
 
 class OCRCache(Base):
@@ -148,5 +157,5 @@ class OCRCache(Base):
     image_url = Column(String(500), unique=True, index=True, nullable=False)
     ocr_text = Column(Text, nullable=True)
     language = Column(String(10), default="por+eng")  # Tesseract language codes
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_used = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_local_now_naive)
+    last_used = Column(DateTime, default=get_local_now_naive)

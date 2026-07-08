@@ -8,6 +8,7 @@ from app.db.database import get_db
 from app.db.models import User, Profile
 from app.schemas.profile import ProfileCreate, ProfileUpdate, ProfileResponse
 from app.core.security import get_current_user
+from app.config import get_local_now_naive
 
 router = APIRouter()
 
@@ -207,7 +208,7 @@ async def test_scrape_profile(
     try:
         scraper = InstagramPlaywrightScraper()
         # Para teste, busca posts dos últimos 30 dias (não apenas 24h)
-        since = datetime.utcnow() - timedelta(days=30)
+        since = get_local_now_naive() - timedelta(days=30)
         # Timeout de 60 segundos (navegador é mais lento)
         posts = await asyncio.wait_for(
             scraper.get_recent_posts(profile.username, limit=3, since=since),
@@ -308,7 +309,7 @@ async def test_scrape_and_send_telegram(
 
         # Scrape posts
         scraper = InstagramPlaywrightScraper()
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = get_local_now_naive() - timedelta(hours=hours)
         posts = await asyncio.wait_for(
             scraper.get_recent_posts(profile.username, limit=3, since=since),
             timeout=60.0
@@ -374,6 +375,7 @@ async def test_scrape_and_send_telegram(
                 processed_post = ProcessedPost(
                     profile_id=profile.id,
                     post_id=post_id,
+                    post_url=post.get("profile_url", ""),
                     content=post.get("content", ""),
                     summary=post.get("summary"),
                     media_url=post.get("media_url"),
@@ -381,13 +383,13 @@ async def test_scrape_and_send_telegram(
                     has_keyword=has_keyword,
                     matched_keywords=matched if has_keyword else None,
                     status="completed",
-                    sent_at=datetime.utcnow(),
-                    processed_at=datetime.utcnow(),
+                    sent_at=get_local_now_naive(),
+                    processed_at=get_local_now_naive(),
                 )
                 db.add(processed_post)
 
         # Atualiza o last_scraped do perfil
-        profile.last_scraped = datetime.utcnow()
+        profile.last_scraped = get_local_now_naive()
         await db.commit()
 
         return {

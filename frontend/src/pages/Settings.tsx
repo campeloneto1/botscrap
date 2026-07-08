@@ -356,6 +356,60 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* Notifications Section */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <span className="text-2xl">🔔</span> Notificações
+          </h2>
+
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.send_only_with_keywords ?? false}
+                onChange={(e) => setFormData({ ...formData, send_only_with_keywords: e.target.checked })}
+                className="w-4 h-4 rounded border-gray-300"
+              />
+              <span className="text-sm">Enviar apenas posts com palavras-chave</span>
+            </label>
+            <p className="text-xs text-gray-500 ml-6">
+              Se ativado, só envia posts que contêm palavras-chave. Se desativado, envia todos os posts encontrados.
+            </p>
+
+            <hr className="my-4" />
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.notify_no_posts ?? true}
+                onChange={(e) => setFormData({ ...formData, notify_no_posts: e.target.checked })}
+                className="w-4 h-4 rounded border-gray-300"
+              />
+              <span className="text-sm">Notificar quando não encontrar posts</span>
+            </label>
+            <p className="text-xs text-gray-500 ml-6">
+              Enviar mensagem no Telegram quando nenhum novo post for encontrado.
+            </p>
+
+            {formData.notify_no_posts && (
+              <>
+                <label className="flex items-center gap-2 cursor-pointer ml-6">
+                  <input
+                    type="checkbox"
+                    checked={formData.show_profiles_in_no_posts ?? true}
+                    onChange={(e) => setFormData({ ...formData, show_profiles_in_no_posts: e.target.checked })}
+                    className="w-4 h-4 rounded border-gray-300"
+                  />
+                  <span className="text-sm">Mostrar lista de perfis verificados</span>
+                </label>
+                <p className="text-xs text-gray-500 ml-12">
+                  Incluir os nomes dos perfis que foram verificados na mensagem.
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Proxies Section */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">

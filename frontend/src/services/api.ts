@@ -241,6 +241,10 @@ export interface AppSettings {
   proxy_list: string | null
   groq_api_key: string | null
   enable_ai_summary: boolean
+  // Notificações
+  notify_no_posts: boolean
+  show_profiles_in_no_posts: boolean
+  send_only_with_keywords: boolean
   updated_at: string | null
 }
 

@@ -16,12 +16,14 @@ from app.db.models import ProcessedPost, Profile, Keyword, AppSettings
 from app.utils.keywords import find_keywords
 from app.utils.ocr import process_image_for_keywords
 from app.utils.ai_summary import generate_summary
+from app.utils.video_transcription import process_video_for_keywords
 from app.telegram.bot import TelegramBot
 from app.core.app_settings import (
     get_app_settings,
     is_ai_summary_enabled,
     get_telegram_token,
 )
+from app.config import get_local_now_naive
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +172,42 @@ class PostProcessor:
             except Exception as e:
                 logger.warning(f"OCR failed for post {post.id}: {e}")
 
+        # Video transcription if it's a video
+        is_video = post.is_video or (
+            post.media_url and any(
+                ext in post.media_url.lower()
+                for ext in ['.mp4', '.mov', '.webm', '.avi', '.mkv', 'video']
+            )
+        )
+
+        if is_video and post.media_url and keywords:
+            try:
+                logger.info(f"Starting video transcription for post {post.id}...")
+                video_has_kw, video_matched, video_priority, transcript = await process_video_for_keywords(
+                    post.media_url, keywords, language="pt"
+                )
+
+                if transcript:
+                    post.video_transcript = transcript
+                    post.is_video = True
+                    logger.info(f"Video transcribed for post {post.id}: {len(transcript)} characters")
+
+                    if video_has_kw:
+                        if not has_keyword:
+                            has_keyword = True
+                            matched = video_matched
+                            priority = video_priority
+                        else:
+                            for kw in video_matched:
+                                if kw not in matched:
+                                    matched.append(kw)
+                            priority = max(priority, video_priority)
+
+                        logger.info(f"Video transcription found keywords in post {post.id}: {video_matched}")
+
+            except Exception as e:
+                logger.warning(f"Video transcription failed for post {post.id}: {e}")
+
         # Update keyword info
         post.has_keyword = has_keyword
         post.matched_keywords = matched if matched else None
@@ -184,42 +222,50 @@ class PostProcessor:
 
         # Send to Telegram
         if profile.telegram_group_id and profile.telegram_group:
-            try:
-                telegram_token = get_telegram_token(app_settings)
-                bot = TelegramBot(token=telegram_token)
-                chat_id = profile.telegram_group.chat_id
+            # Check if we should only send posts with keywords
+            send_only_with_keywords = getattr(app_settings, 'send_only_with_keywords', False)
 
-                # Build post dict for telegram
-                post_data = {
-                    "post_id": post.post_id,
-                    "content": post.content,
-                    "media_url": post.media_url,
-                    "summary": post.summary,
-                }
+            if send_only_with_keywords and not has_keyword:
+                logger.info(f"Post {post.id} skipped (no keywords, send_only_with_keywords=True)")
+            else:
+                try:
+                    telegram_token = get_telegram_token(app_settings)
+                    bot = TelegramBot(token=telegram_token)
+                    chat_id = profile.telegram_group.chat_id
 
-                if has_keyword and priority >= 2:
-                    await bot.send_alert(
-                        chat_id=chat_id,
-                        post=post_data,
-                        profile_username=profile.username,
-                        platform=profile.platform,
-                        matched_keywords=matched,
-                        priority=priority,
-                    )
-                else:
-                    await bot.send_post(
-                        chat_id=chat_id,
-                        post=post_data,
-                        profile_username=profile.username,
-                        platform=profile.platform,
-                        matched_keywords=matched if has_keyword else None,
-                    )
+                    # Build post dict for telegram
+                    post_data = {
+                        "post_id": post.post_id,
+                        "content": post.content,
+                        "media_url": post.media_url,
+                        "summary": post.summary,
+                        "profile_url": post.post_url,
+                        "video_transcript": post.video_transcript,
+                    }
 
-                post.sent_at = datetime.utcnow()
-                logger.info(f"Post {post.id} sent to Telegram")
+                    if has_keyword and priority >= 2:
+                        await bot.send_alert(
+                            chat_id=chat_id,
+                            post=post_data,
+                            profile_username=profile.username,
+                            platform=profile.platform,
+                            matched_keywords=matched,
+                            priority=priority,
+                        )
+                    else:
+                        await bot.send_post(
+                            chat_id=chat_id,
+                            post=post_data,
+                            profile_username=profile.username,
+                            platform=profile.platform,
+                            matched_keywords=matched if has_keyword else None,
+                        )
 
-            except Exception as e:
-                logger.error(f"Failed to send post {post.id} to Telegram: {e}")
+                    post.sent_at = get_local_now_naive()
+                    logger.info(f"Post {post.id} sent to Telegram")
+
+                except Exception as e:
+                    logger.error(f"Failed to send post {post.id} to Telegram: {e}")
 
         post.status = "completed"
         await db.commit()

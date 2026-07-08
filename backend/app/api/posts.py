@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.db.database import get_db
 from app.db.models import ProcessedPost, Profile
 from app.api.auth import get_current_user, User
+from app.config import get_local_now
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
 
@@ -208,7 +209,7 @@ async def export_posts(
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f"attachment; filename=posts_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+            "Content-Disposition": f"attachment; filename=posts_{get_local_now().strftime('%Y%m%d_%H%M%S')}.csv"
         }
     )
 

@@ -2,13 +2,14 @@ import asyncio
 import logging
 import random
 from datetime import datetime, timedelta
+from typing import Callable, Any, TypeVar
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+from app.config import get_settings, get_local_now_naive
 from app.db.database import async_session
 from app.db.models import Profile, ProcessedPost, ScrapingLog, AppSettings
 from app.scrapers.instagram_playwright import InstagramPlaywrightScraper
@@ -18,6 +19,57 @@ from app.core.app_settings import get_app_settings, get_scrape_delay, get_scrape
 
 logger = logging.getLogger(__name__)
 settings = get_settings()  # Fallback for startup
+
+# ============================================================
+# CONFIGURAÇÕES DE PARALELISMO E RETRY
+# ============================================================
+MAX_CONCURRENT_SCRAPES = 3  # Número máximo de profiles em paralelo
+MAX_RETRIES = 3  # Número máximo de tentativas por profile
+RETRY_BASE_DELAY = 2  # Delay base em segundos (exponencial: 2, 4, 8)
+PROFILE_TIMEOUT = 120  # Timeout máximo por profile em segundos
+
+T = TypeVar('T')
+
+
+async def retry_with_backoff(
+    func: Callable[..., Any],
+    *args,
+    max_retries: int = MAX_RETRIES,
+    base_delay: float = RETRY_BASE_DELAY,
+    **kwargs
+) -> Any:
+    """
+    Executa uma função com retry exponencial.
+
+    Args:
+        func: Função assíncrona a ser executada
+        max_retries: Número máximo de tentativas
+        base_delay: Delay base em segundos (será multiplicado exponencialmente)
+
+    Returns:
+        Resultado da função ou None se todas as tentativas falharem
+    """
+    last_exception = None
+
+    for attempt in range(max_retries):
+        try:
+            return await func(*args, **kwargs)
+        except asyncio.TimeoutError:
+            # Timeout não faz retry
+            raise
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)  # Exponencial: 2, 4, 8...
+                logger.warning(
+                    f"Tentativa {attempt + 1}/{max_retries} falhou: {e}. "
+                    f"Retry em {delay}s..."
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"Todas as {max_retries} tentativas falharam: {e}")
+
+    raise last_exception if last_exception else Exception("Retry failed")
 
 
 class ScrapingScheduler:
@@ -120,8 +172,8 @@ class ScrapingScheduler:
             logger.info(f"Processed {result['posts_processed']} posts, sent {result.get('posts_sent', 0)} to Telegram")
 
     async def run_manual_scrape(self, hours: int = 3) -> dict:
-        """Run a manual scrape - sequential with timeout per profile."""
-        logger.info(f"Starting manual scrape for last {hours} hours...")
+        """Run a manual scrape - parallel with retry and timeout per profile."""
+        logger.info(f"Starting manual scrape for last {hours} hours (parallel: {MAX_CONCURRENT_SCRAPES})...")
 
         results = {
             "success": True,
@@ -151,39 +203,56 @@ class ScrapingScheduler:
                            for p in profiles]
 
         results["profiles_total"] = len(profile_list)
-        logger.info(f"Found {len(profile_list)} profiles to scrape sequentially")
+        logger.info(f"Found {len(profile_list)} profiles to scrape in parallel (max {MAX_CONCURRENT_SCRAPES} concurrent)")
 
-        # Process each profile sequentially with individual timeout
-        PROFILE_TIMEOUT = 120  # 2 minutes max per profile
+        # Semaphore to limit concurrent scrapes
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
 
-        for i, profile_data in enumerate(profile_list):
+        async def scrape_with_semaphore(profile_data, index):
+            """Scrape a profile with semaphore, timeout and retry."""
             profile_id, username, platform, user_id, tg_group_id, chat_id = profile_data
-            logger.info(f"[{i+1}/{len(profile_list)}] Processing @{username}...")
 
-            try:
-                # Wrap in timeout to prevent single profile from blocking
-                async with asyncio.timeout(PROFILE_TIMEOUT):
-                    async with async_session() as db:
-                        stats = await self._scrape_profile_by_id(
-                            db, profile_id, username, platform, user_id,
-                            tg_group_id, chat_id, app_settings, hours
-                        )
+            async with semaphore:
+                logger.info(f"[{index+1}/{len(profile_list)}] Starting @{username}...")
 
+                try:
+                    # Wrap in timeout
+                    async with asyncio.timeout(PROFILE_TIMEOUT):
+                        # Use retry with exponential backoff
+                        async def do_scrape():
+                            async with async_session() as db:
+                                return await self._scrape_profile_by_id(
+                                    db, profile_id, username, platform, user_id,
+                                    tg_group_id, chat_id, app_settings, hours
+                                )
+
+                        stats = await retry_with_backoff(do_scrape)
+
+                    logger.info(f"[{index+1}/{len(profile_list)}] Done @{username}: {stats.get('posts_found', 0)} posts")
+                    return {"success": True, "username": username, "stats": stats}
+
+                except asyncio.TimeoutError:
+                    logger.warning(f"[{index+1}/{len(profile_list)}] Timeout @{username}")
+                    return {"success": False, "username": username, "error": "timeout"}
+
+                except Exception as e:
+                    logger.error(f"[{index+1}/{len(profile_list)}] Error @{username}: {e}")
+                    return {"success": False, "username": username, "error": str(e)}
+
+        # Run all scrapes in parallel (limited by semaphore)
+        tasks = [scrape_with_semaphore(profile_data, i) for i, profile_data in enumerate(profile_list)]
+        scrape_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Aggregate results
+        for result in scrape_results:
+            if isinstance(result, Exception):
+                results["errors"].append(str(result))
+            elif result.get("success"):
                 results["profiles_scraped"] += 1
-                results["posts_found"] += stats.get("posts_found", 0)
-                results["posts_sent"] += stats.get("posts_sent", 0)
-                logger.info(f"[{i+1}/{len(profile_list)}] Done @{username}: {stats.get('posts_found', 0)} posts")
-
-            except asyncio.TimeoutError:
-                results["errors"].append(f"{username}: timeout")
-                logger.warning(f"[{i+1}/{len(profile_list)}] Timeout @{username}, skipping...")
-
-            except Exception as e:
-                results["errors"].append(f"{username}: {str(e)}")
-                logger.error(f"[{i+1}/{len(profile_list)}] Error @{username}: {e}")
-
-            # Small delay between profiles
-            await asyncio.sleep(1)
+                results["posts_found"] += result.get("stats", {}).get("posts_found", 0)
+                results["posts_sent"] += result.get("stats", {}).get("posts_sent", 0)
+            else:
+                results["errors"].append(f"{result.get('username', '?')}: {result.get('error', 'unknown')}")
 
         logger.info(f"Manual scrape completed: {results['profiles_scraped']}/{results['profiles_total']} profiles")
         return results
@@ -203,7 +272,7 @@ class ScrapingScheduler:
         stats = {"posts_found": 0, "posts_new": 0}
 
         # Use custom hours period
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = get_local_now_naive() - timedelta(hours=hours)
 
         # Get posts from Instagram
         posts = await scraper.get_recent_posts(
@@ -230,6 +299,7 @@ class ScrapingScheduler:
             processed_post = ProcessedPost(
                 profile_id=profile_id,
                 post_id=post["post_id"],
+                post_url=post.get("profile_url", ""),
                 content=post.get("content", ""),
                 media_url=post.get("media_url"),
                 status="pending",  # Will be processed by PostProcessor
@@ -241,7 +311,7 @@ class ScrapingScheduler:
         profile_obj = (await db.execute(
             select(Profile).where(Profile.id == profile_id)
         )).scalar_one()
-        profile_obj.last_scraped = datetime.utcnow()
+        profile_obj.last_scraped = get_local_now_naive()
 
         # Log
         log = ScrapingLog(
@@ -258,9 +328,9 @@ class ScrapingScheduler:
         return stats
 
     async def run_scraping_job(self):
-        """Main scraping job that runs periodically."""
-        logger.info("Starting scraping job...")
-        self.last_run = datetime.utcnow()
+        """Main scraping job that runs periodically - with parallelism and retry."""
+        logger.info(f"Starting scraping job (parallel: {MAX_CONCURRENT_SCRAPES}, retry: {MAX_RETRIES})...")
+        self.last_run = get_local_now_naive()
 
         # Track profiles with no posts for grouped notifications
         profiles_without_posts = {}  # {user_id: [(username, platform), ...]}
@@ -286,82 +356,147 @@ class ScrapingScheduler:
                            p.telegram_group.chat_id if p.telegram_group else None)
                           for p in profiles]
 
-        logger.info(f"Found {len(profile_ids)} active profiles to scrape")
+        logger.info(f"Found {len(profile_ids)} active profiles to scrape in parallel")
 
-        # Process each profile with its own session
-        for profile_data in profile_ids:
+        # Semaphore to limit concurrent scrapes
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCRAPES)
+
+        async def scrape_with_semaphore(profile_data, index):
+            """Scrape a profile with semaphore, timeout and retry."""
             profile_id, username, platform, user_id, tg_group_id, chat_id = profile_data
-            try:
-                async with async_session() as db:
-                    stats = await self._scrape_profile_by_data_with_stats(
-                        db, profile_id, username, platform, user_id,
-                        tg_group_id, chat_id, app_settings
-                    )
 
+            async with semaphore:
+                # Add random delay to stagger requests (avoid burst)
+                stagger_delay = random.uniform(0, scrape_delay)
+                await asyncio.sleep(stagger_delay)
+
+                logger.info(f"[{index+1}/{len(profile_ids)}] Starting @{username}...")
+
+                try:
+                    async with asyncio.timeout(PROFILE_TIMEOUT):
+                        # Use retry with exponential backoff
+                        async def do_scrape():
+                            async with async_session() as db:
+                                return await self._scrape_profile_by_data_with_stats(
+                                    db, profile_id, username, platform, user_id,
+                                    tg_group_id, chat_id, app_settings
+                                )
+
+                        stats = await retry_with_backoff(do_scrape)
+
+                    logger.info(f"[{index+1}/{len(profile_ids)}] Done @{username}: {stats.get('posts_found', 0)} posts")
+                    return {
+                        "success": True,
+                        "username": username,
+                        "platform": platform,
+                        "user_id": user_id,
+                        "tg_group_id": tg_group_id,
+                        "chat_id": chat_id,
+                        "stats": stats
+                    }
+
+                except asyncio.TimeoutError:
+                    logger.warning(f"[{index+1}/{len(profile_ids)}] Timeout @{username}")
+                    return {"success": False, "username": username, "error": "timeout"}
+
+                except Exception as e:
+                    logger.error(f"[{index+1}/{len(profile_ids)}] Error @{username}: {e}")
+                    return {"success": False, "username": username, "error": str(e)}
+
+        # Run all scrapes in parallel (limited by semaphore)
+        tasks = [scrape_with_semaphore(profile_data, i) for i, profile_data in enumerate(profile_ids)]
+        scrape_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results and track profiles without posts
+        for result in scrape_results:
+            if isinstance(result, Exception):
+                logger.error(f"Unexpected error: {result}")
+                continue
+
+            if result.get("success"):
+                stats = result.get("stats", {})
                 # Track profiles with no posts
-                if stats.get("posts_found", 0) == 0 and tg_group_id and chat_id:
-                    if user_id not in profiles_without_posts:
-                        profiles_without_posts[user_id] = {
-                            "profiles": [],
-                            "chat_id": chat_id,
-                        }
-                    profiles_without_posts[user_id]["profiles"].append((username, platform))
+                if stats.get("posts_found", 0) == 0:
+                    tg_group_id = result.get("tg_group_id")
+                    chat_id = result.get("chat_id")
+                    if tg_group_id and chat_id:
+                        user_id = result.get("user_id")
+                        if user_id not in profiles_without_posts:
+                            profiles_without_posts[user_id] = {
+                                "profiles": [],
+                                "chat_id": chat_id,
+                            }
+                        profiles_without_posts[user_id]["profiles"].append(
+                            (result.get("username"), result.get("platform"))
+                        )
 
-            except Exception as e:
-                logger.error(f"Error scraping {username}: {e}")
-
-            # Delay aleatório entre perfis (mais natural, evita rate limit)
-            delay = random.uniform(scrape_delay, scrape_delay * 2)
-            logger.info(f"Waiting {delay:.1f}s before next profile...")
-            await asyncio.sleep(delay)
-
-        # Send grouped "no posts" notifications
+        # Send grouped "no posts" notifications (if enabled)
         if profiles_without_posts:
             from app.core.app_settings import get_telegram_token
             from app.telegram.bot import TelegramBot
 
             async with async_session() as db:
                 app_settings = await get_app_settings(db)
-                telegram_token = get_telegram_token(app_settings)
 
-                if telegram_token:
-                    bot = TelegramBot(token=telegram_token)
+                # Check if notifications are enabled
+                notify_no_posts = getattr(app_settings, 'notify_no_posts', True)
+                show_profiles = getattr(app_settings, 'show_profiles_in_no_posts', True)
 
-                    for user_id, data in profiles_without_posts.items():
-                        try:
-                            profiles_list = data["profiles"]
-                            chat_id = data["chat_id"]
+                if not notify_no_posts:
+                    logger.info("No-posts notifications disabled, skipping")
+                else:
+                    telegram_token = get_telegram_token(app_settings)
 
-                            if len(profiles_list) == 1:
-                                username, platform = profiles_list[0]
-                                await bot.send_no_posts_found(
-                                    chat_id=chat_id,
-                                    profile_username=username,
-                                    platform=platform,
-                                    hours=interval_hours,
-                                )
-                            else:
-                                # Send grouped message
-                                profiles_text = "\n".join([f"• @{u} ({p})" for u, p in profiles_list])
-                                message = (
-                                    f"🔍 *Nenhum post encontrado*\n\n"
-                                    f"Nos seguintes perfis (últimas {interval_hours}h):\n\n"
-                                    f"{profiles_text}"
-                                )
+                    if telegram_token:
+                        bot = TelegramBot(token=telegram_token)
 
-                                import httpx
-                                url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-                                async with httpx.AsyncClient() as client:
-                                    await client.post(url, json={
-                                        "chat_id": chat_id,
-                                        "text": message,
-                                        "parse_mode": "Markdown"
-                                    })
+                        for user_id, data in profiles_without_posts.items():
+                            try:
+                                profiles_list = data["profiles"]
+                                chat_id = data["chat_id"]
 
-                                logger.info(f"Sent grouped no-posts notification: {len(profiles_list)} profiles")
+                                if len(profiles_list) == 1:
+                                    username, platform = profiles_list[0]
+                                    if show_profiles:
+                                        await bot.send_no_posts_found(
+                                            chat_id=chat_id,
+                                            profile_username=username,
+                                            platform=platform,
+                                            hours=interval_hours,
+                                        )
+                                    else:
+                                        # Simple message without profile details
+                                        message = f"ℹ️ Nenhum post encontrado nas últimas {interval_hours}h."
+                                        await bot.send_message(chat_id=chat_id, text=message)
+                                else:
+                                    # Send grouped message
+                                    if show_profiles:
+                                        profiles_text = "\n".join([f"• @{u} ({p})" for u, p in profiles_list])
+                                        message = (
+                                            f"🔍 *Nenhum post encontrado*\n\n"
+                                            f"Nos seguintes perfis (últimas {interval_hours}h):\n\n"
+                                            f"{profiles_text}"
+                                        )
+                                    else:
+                                        message = (
+                                            f"🔍 *Nenhum post encontrado*\n\n"
+                                            f"Nenhum novo post nas últimas {interval_hours}h "
+                                            f"({len(profiles_list)} perfis verificados)."
+                                        )
 
-                        except Exception as e:
-                            logger.error(f"Failed to send no-posts notification: {e}")
+                                    import httpx
+                                    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+                                    async with httpx.AsyncClient() as client:
+                                        await client.post(url, json={
+                                            "chat_id": chat_id,
+                                            "text": message,
+                                            "parse_mode": "Markdown"
+                                        })
+
+                                    logger.info(f"Sent grouped no-posts notification: {len(profiles_list)} profiles")
+
+                            except Exception as e:
+                                logger.error(f"Failed to send no-posts notification: {e}")
 
         logger.info("Scraping job completed")
 
@@ -380,7 +515,7 @@ class ScrapingScheduler:
 
         # Get posts from last interval
         interval_hours = get_scrape_interval(app_settings)
-        since = datetime.utcnow() - timedelta(hours=interval_hours)
+        since = get_local_now_naive() - timedelta(hours=interval_hours)
 
         posts = await scraper.get_recent_posts(
             username,
@@ -407,6 +542,7 @@ class ScrapingScheduler:
             processed_post = ProcessedPost(
                 profile_id=profile_id,
                 post_id=post["post_id"],
+                post_url=post.get("profile_url", ""),
                 content=post.get("content", ""),
                 media_url=post.get("media_url"),
                 status="pending",
@@ -418,7 +554,7 @@ class ScrapingScheduler:
         profile_obj = (await db.execute(
             select(Profile).where(Profile.id == profile_id)
         )).scalar_one()
-        profile_obj.last_scraped = datetime.utcnow()
+        profile_obj.last_scraped = get_local_now_naive()
 
         # Log
         log = ScrapingLog(
@@ -447,7 +583,7 @@ class ScrapingScheduler:
         try:
             # Get posts from last interval
             interval_hours = get_scrape_interval(app_settings) if app_settings else settings.scrape_interval_hours
-            since = datetime.utcnow() - timedelta(hours=interval_hours)
+            since = get_local_now_naive() - timedelta(hours=interval_hours)
 
             posts = await scraper.get_recent_posts(
                 profile.username,
@@ -472,6 +608,7 @@ class ScrapingScheduler:
                 processed_post = ProcessedPost(
                     profile_id=profile.id,
                     post_id=post["post_id"],
+                    post_url=post.get("profile_url", ""),
                     content=post.get("content", ""),
                     media_url=post.get("media_url"),
                     status="pending",
@@ -480,7 +617,7 @@ class ScrapingScheduler:
                 posts_new += 1
 
             # Update last scraped
-            profile.last_scraped = datetime.utcnow()
+            profile.last_scraped = get_local_now_naive()
 
             # Log
             log = ScrapingLog(

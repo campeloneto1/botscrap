@@ -8,7 +8,7 @@ import logging
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeout
 
 from app.scrapers.base import BaseScraper
-from app.config import get_settings
+from app.config import get_settings, get_local_now_naive
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -166,7 +166,7 @@ class FacebookPlaywrightScraper(BaseScraper):
         posts = []
 
         if since is None:
-            since = datetime.utcnow() - timedelta(days=1)
+            since = get_local_now_naive() - timedelta(days=1)
 
         browser = None
         page = None
@@ -272,7 +272,7 @@ class FacebookPlaywrightScraper(BaseScraper):
                 content = " ".join(content.split())
 
             # Extract time/date (Facebook uses relative time like "2h", "3d")
-            created_at = datetime.utcnow()
+            created_at = get_local_now_naive()
             time_elem = await post_element.query_selector('abbr')
             if time_elem:
                 time_text = await time_elem.text_content()
@@ -335,7 +335,7 @@ class FacebookPlaywrightScraper(BaseScraper):
 
             # Handle "just now"
             if "just now" in time_text or "agora" in time_text:
-                return datetime.utcnow()
+                return get_local_now_naive()
 
             # Extract number and unit
             match = re.search(r'(\d+)\s*([smhdwy])', time_text)
@@ -344,21 +344,21 @@ class FacebookPlaywrightScraper(BaseScraper):
                 unit = match.group(2)
 
                 if unit == 's':  # seconds
-                    return datetime.utcnow() - timedelta(seconds=amount)
+                    return get_local_now_naive() - timedelta(seconds=amount)
                 elif unit == 'm':  # minutes
-                    return datetime.utcnow() - timedelta(minutes=amount)
+                    return get_local_now_naive() - timedelta(minutes=amount)
                 elif unit == 'h':  # hours
-                    return datetime.utcnow() - timedelta(hours=amount)
+                    return get_local_now_naive() - timedelta(hours=amount)
                 elif unit == 'd':  # days
-                    return datetime.utcnow() - timedelta(days=amount)
+                    return get_local_now_naive() - timedelta(days=amount)
                 elif unit == 'w':  # weeks
-                    return datetime.utcnow() - timedelta(weeks=amount)
+                    return get_local_now_naive() - timedelta(weeks=amount)
                 elif unit == 'y':  # years
-                    return datetime.utcnow() - timedelta(days=amount * 365)
+                    return get_local_now_naive() - timedelta(days=amount * 365)
 
             # If parsing fails, assume recent
-            return datetime.utcnow()
+            return get_local_now_naive()
 
         except Exception as e:
             logger.warning(f"Error parsing time '{time_text}': {e}")
-            return datetime.utcnow()
+            return get_local_now_naive()

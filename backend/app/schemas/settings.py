@@ -17,6 +17,10 @@ class AppSettingsBase(BaseModel):
     proxy_list: Optional[str] = None
     groq_api_key: Optional[str] = None
     enable_ai_summary: bool = True
+    # Notificações
+    notify_no_posts: bool = True
+    show_profiles_in_no_posts: bool = True
+    send_only_with_keywords: bool = False
 
 
 class AppSettingsUpdate(BaseModel):
@@ -33,6 +37,10 @@ class AppSettingsUpdate(BaseModel):
     proxy_list: Optional[str] = None
     groq_api_key: Optional[str] = None
     enable_ai_summary: Optional[bool] = None
+    # Notificações
+    notify_no_posts: Optional[bool] = None
+    show_profiles_in_no_posts: Optional[bool] = None
+    send_only_with_keywords: Optional[bool] = None
 
 
 class AppSettingsResponse(AppSettingsBase):

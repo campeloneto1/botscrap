@@ -64,6 +64,9 @@ async def get_settings(
         proxy_list=settings.proxy_list,
         groq_api_key=mask_sensitive(settings.groq_api_key),
         enable_ai_summary=settings.enable_ai_summary,
+        notify_no_posts=getattr(settings, 'notify_no_posts', True),
+        show_profiles_in_no_posts=getattr(settings, 'show_profiles_in_no_posts', True),
+        send_only_with_keywords=getattr(settings, 'send_only_with_keywords', False),
         updated_at=settings.updated_at,
     )
 
@@ -121,6 +124,9 @@ async def update_settings(
         proxy_list=settings.proxy_list,
         groq_api_key=mask_sensitive(settings.groq_api_key),
         enable_ai_summary=settings.enable_ai_summary,
+        notify_no_posts=getattr(settings, 'notify_no_posts', True),
+        show_profiles_in_no_posts=getattr(settings, 'show_profiles_in_no_posts', True),
+        send_only_with_keywords=getattr(settings, 'send_only_with_keywords', False),
         updated_at=settings.updated_at,
     )
 

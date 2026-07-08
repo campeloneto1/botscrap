@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.db.models import ProcessedPost, ScrapingLog
+from app.config import get_local_now
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -20,7 +21,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
     """
     health = {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": get_local_now().isoformat(),
         "components": {}
     }
 
@@ -48,7 +49,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         last_log_obj = last_log.scalar_one_or_none()
 
         if last_log_obj:
-            time_since_last = datetime.utcnow() - last_log_obj.created_at
+            time_since_last = get_local_now().replace(tzinfo=None) - last_log_obj.created_at
             # Grace period: 2 hours beyond expected interval
             if time_since_last > timedelta(hours=26):  # 24h interval + 2h grace
                 health["components"]["scheduler"] = {
@@ -138,8 +139,8 @@ async def get_metrics(db: AsyncSession = Depends(get_db)):
 
     from sqlalchemy import func
 
-    # Processing times (last 24h)
-    yesterday = datetime.utcnow() - timedelta(days=1)
+    # Processing times (last 24h) - usando timezone America/Fortaleza
+    yesterday = get_local_now() - timedelta(days=1)
 
     # Average processing performance
     completed_24h = await db.execute(

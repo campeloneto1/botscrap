@@ -8,7 +8,7 @@ import logging
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeout
 
 from app.scrapers.base import BaseScraper
-from app.config import get_settings
+from app.config import get_settings, get_local_now_naive
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -158,7 +158,7 @@ class TwitterPlaywrightScraper(BaseScraper):
         posts = []
 
         if since is None:
-            since = datetime.utcnow() - timedelta(days=1)
+            since = get_local_now_naive() - timedelta(days=1)
 
         browser = None
         page = None
@@ -239,7 +239,7 @@ class TwitterPlaywrightScraper(BaseScraper):
 
             # Extract time/date
             time_elem = await tweet_element.query_selector('time')
-            created_at = datetime.utcnow()
+            created_at = get_local_now_naive()
             if time_elem:
                 datetime_str = await time_elem.get_attribute("datetime")
                 if datetime_str:
