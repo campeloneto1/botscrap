@@ -1,0 +1,15 @@
+[Unit]
+Description=BotScrap Webhook Server para Deploy Automático
+After=network.target
+
+[Service]
+Type=simple
+User=campelo
+WorkingDirectory=/home/campelo/campelo/botscrap
+Environment="WEBHOOK_SECRET=seu_secret_aqui"
+ExecStart=/usr/bin/python3 /home/campelo/campelo/botscrap/webhook_server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

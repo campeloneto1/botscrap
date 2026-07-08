@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, or_, and_, func
+from sqlalchemy import select, or_, and_, func, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -54,7 +54,7 @@ async def search_posts(
         search_filter = or_(
             ProcessedPost.content.ilike(f"%{query}%"),
             ProcessedPost.ocr_text.ilike(f"%{query}%"),
-            func.cast(ProcessedPost.matched_keywords, func.Text()).ilike(f"%{query}%")
+            func.cast(ProcessedPost.matched_keywords, String).ilike(f"%{query}%")
         )
         stmt = stmt.where(search_filter)
 
