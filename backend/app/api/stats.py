@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.db.models import ProcessedPost, Profile, ScrapingLog
 from app.api.auth import get_current_user, User
-from app.config import get_local_now
+from app.config import get_local_now_naive
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -38,7 +38,7 @@ async def get_stats_overview(
     status_counts = {row[0]: row[1] for row in result.fetchall()}
 
     # Recent posts with keywords (last 7 days) - usando timezone America/Fortaleza
-    seven_days_ago = get_local_now() - timedelta(days=7)
+    seven_days_ago = get_local_now_naive() - timedelta(days=7)
     keywords_query = select(func.count(ProcessedPost.id)).where(
         and_(
             ProcessedPost.has_keyword == True,
@@ -91,7 +91,7 @@ async def get_posts_timeline(
 ):
     """Get posts count per day for the last N days."""
 
-    start_date = get_local_now() - timedelta(days=days)
+    start_date = get_local_now_naive() - timedelta(days=days)
 
     from sqlalchemy import case
 

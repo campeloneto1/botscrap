@@ -163,6 +163,32 @@ async def migrate():
                             """))
                         # Não vamos forçar NOT NULL em colunas existentes para evitar erros
 
+        # Verificar e criar índices faltantes
+        for table_name, table in Base.metadata.tables.items():
+            if not await table_exists(conn, table_name):
+                continue
+
+            for index in table.indexes:
+                # Verificar se o índice já existe
+                index_check = await conn.execute(text("""
+                    SELECT 1 FROM pg_indexes
+                    WHERE tablename = :table_name AND indexname = :index_name
+                """), {"table_name": table_name, "index_name": index.name})
+
+                if not index_check.scalar():
+                    try:
+                        # Criar o índice
+                        columns = ", ".join([c.name for c in index.columns])
+                        unique = "UNIQUE" if index.unique else ""
+                        logger.info(f"Criando índice '{index.name}' na tabela '{table_name}'...")
+                        await conn.execute(text(f"""
+                            CREATE {unique} INDEX IF NOT EXISTS {index.name}
+                            ON {table_name} ({columns})
+                        """))
+                        logger.info(f"Índice '{index.name}' criado com sucesso!")
+                    except Exception as e:
+                        logger.warning(f"Erro ao criar índice '{index.name}': {e}")
+
         logger.info("Migrações concluídas com sucesso!")
 
 

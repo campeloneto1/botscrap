@@ -222,10 +222,11 @@ class PostProcessor:
 
         # Send to Telegram
         if profile.telegram_group_id and profile.telegram_group:
+            # Skip if already sent (prevents duplicates)
+            if post.sent_at:
+                logger.info(f"Post {post.id} already sent at {post.sent_at}, skipping")
             # Check if we should only send posts with keywords
-            send_only_with_keywords = getattr(app_settings, 'send_only_with_keywords', False)
-
-            if send_only_with_keywords and not has_keyword:
+            elif getattr(app_settings, 'send_only_with_keywords', False) and not has_keyword:
                 logger.info(f"Post {post.id} skipped (no keywords, send_only_with_keywords=True)")
             else:
                 try:

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, Index
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -58,6 +58,10 @@ class Profile(Base):
 
 class ProcessedPost(Base):
     __tablename__ = "processed_posts"
+    __table_args__ = (
+        # Garante que não há duplicatas de posts por perfil
+        Index('ix_processed_posts_profile_post', 'profile_id', 'post_id', unique=True),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False)

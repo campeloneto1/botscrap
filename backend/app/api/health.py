@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.db.models import ProcessedPost, ScrapingLog
-from app.config import get_local_now
+from app.config import get_local_now, get_local_now_naive
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -140,7 +140,7 @@ async def get_metrics(db: AsyncSession = Depends(get_db)):
     from sqlalchemy import func
 
     # Processing times (last 24h) - usando timezone America/Fortaleza
-    yesterday = get_local_now() - timedelta(days=1)
+    yesterday = get_local_now_naive() - timedelta(days=1)
 
     # Average processing performance
     completed_24h = await db.execute(
