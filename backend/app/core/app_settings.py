@@ -43,6 +43,10 @@ async def _get_or_create_settings(db: AsyncSession) -> AppSettings:
             telegram_bot_token=_env_settings.telegram_bot_token or None,
             instagram_username=_env_settings.instagram_username or None,
             instagram_password=_env_settings.instagram_password or None,
+            twitter_username=_env_settings.twitter_username or None,
+            twitter_password=_env_settings.twitter_password or None,
+            facebook_email=_env_settings.facebook_email or None,
+            facebook_password=_env_settings.facebook_password or None,
             scrape_interval_hours=_env_settings.scrape_interval_hours,
             scrape_delay_seconds=_env_settings.scrape_delay_seconds,
             use_proxies=_env_settings.use_proxies,
@@ -68,6 +72,20 @@ def get_instagram_credentials(settings: AppSettings) -> tuple[Optional[str], Opt
     username = settings.instagram_username or _env_settings.instagram_username or None
     password = settings.instagram_password or _env_settings.instagram_password or None
     return username, password
+
+
+def get_twitter_credentials(settings: AppSettings) -> tuple[Optional[str], Optional[str]]:
+    """Get Twitter credentials, with fallback to .env."""
+    username = settings.twitter_username or _env_settings.twitter_username or None
+    password = settings.twitter_password or _env_settings.twitter_password or None
+    return username, password
+
+
+def get_facebook_credentials(settings: AppSettings) -> tuple[Optional[str], Optional[str]]:
+    """Get Facebook credentials, with fallback to .env."""
+    email = settings.facebook_email or _env_settings.facebook_email or None
+    password = settings.facebook_password or _env_settings.facebook_password or None
+    return email, password
 
 
 def get_scrape_interval(settings: AppSettings) -> int:

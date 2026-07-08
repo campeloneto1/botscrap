@@ -175,6 +175,98 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* Twitter Section */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <span className="text-2xl">𝕏</span> Twitter/X (Obrigatório)
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Twitter agora requer login para ver a maioria do conteúdo
+          </p>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Username
+              </label>
+              <input
+                type="text"
+                value={formData.twitter_username || ''}
+                onChange={(e) => setFormData({ ...formData, twitter_username: e.target.value })}
+                placeholder="@usuario ou email"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showPasswords['twitter_password'] ? 'text' : 'password'}
+                  value={formData.twitter_password || ''}
+                  onChange={(e) => setFormData({ ...formData, twitter_password: e.target.value })}
+                  placeholder={isMasked(settings?.twitter_password) ? '******' : 'Senha'}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => togglePasswordVisibility('twitter_password')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPasswords['twitter_password'] ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Facebook Section */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <span className="text-2xl">📘</span> Facebook (Obrigatório)
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Use email ao invés de username para login
+          </p>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                value={formData.facebook_email || ''}
+                onChange={(e) => setFormData({ ...formData, facebook_email: e.target.value })}
+                placeholder="email@example.com"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showPasswords['facebook_password'] ? 'text' : 'password'}
+                  value={formData.facebook_password || ''}
+                  onChange={(e) => setFormData({ ...formData, facebook_password: e.target.value })}
+                  placeholder={isMasked(settings?.facebook_password) ? '******' : 'Senha'}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => togglePasswordVisibility('facebook_password')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPasswords['facebook_password'] ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Scraping Section */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">

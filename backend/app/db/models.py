@@ -117,6 +117,14 @@ class AppSettings(Base):
     instagram_username = Column(String(255), nullable=True)
     instagram_password = Column(String(255), nullable=True)
 
+    # Twitter/X
+    twitter_username = Column(String(255), nullable=True)
+    twitter_password = Column(String(255), nullable=True)
+
+    # Facebook
+    facebook_email = Column(String(255), nullable=True)
+    facebook_password = Column(String(255), nullable=True)
+
     # Scraping
     scrape_interval_hours = Column(Integer, default=6)
     scrape_delay_seconds = Column(Integer, default=3)

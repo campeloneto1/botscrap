@@ -231,6 +231,10 @@ export interface AppSettings {
   telegram_bot_token: string | null
   instagram_username: string | null
   instagram_password: string | null
+  twitter_username: string | null
+  twitter_password: string | null
+  facebook_email: string | null
+  facebook_password: string | null
   scrape_interval_hours: number
   scrape_delay_seconds: number
   use_proxies: boolean

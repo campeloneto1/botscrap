@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     instagram_username: str = ""
     instagram_password: str = ""
 
+    # Twitter/X
+    twitter_username: str = ""
+    twitter_password: str = ""
+
+    # Facebook
+    facebook_email: str = ""
+    facebook_password: str = ""
+
     # Scraping
     scrape_interval_hours: int = 6
     scrape_delay_seconds: int = 3

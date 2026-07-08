@@ -12,6 +12,8 @@ from app.config import get_settings
 from app.db.database import async_session
 from app.db.models import Profile, ProcessedPost, ScrapingLog, AppSettings
 from app.scrapers.instagram_playwright import InstagramPlaywrightScraper
+from app.scrapers.twitter_playwright import TwitterPlaywrightScraper
+from app.scrapers.facebook_playwright import FacebookPlaywrightScraper
 from app.core.app_settings import get_app_settings, get_scrape_delay, get_scrape_interval
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,8 @@ class ScrapingScheduler:
         self.scheduler = AsyncIOScheduler()
         self.scrapers = {
             "instagram": InstagramPlaywrightScraper(),
+            "twitter": TwitterPlaywrightScraper(),
+            "facebook": FacebookPlaywrightScraper(),
         }
         self.last_run: datetime = None
         self.is_running: bool = False
