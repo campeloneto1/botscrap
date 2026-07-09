@@ -2,6 +2,7 @@
 Video Transcription utilities using OpenAI Whisper (local).
 Transcribes audio from video files to text.
 """
+import asyncio
 import logging
 import tempfile
 import os
@@ -14,6 +15,11 @@ logger = logging.getLogger(__name__)
 # Whisper model - use 'base' for balance between speed and quality
 # Options: tiny, base, small, medium, large
 WHISPER_MODEL = "base"
+
+# Timeout settings
+VIDEO_DOWNLOAD_TIMEOUT = 60  # 1 minute
+FFMPEG_TIMEOUT = 120  # 2 minutes
+WHISPER_TIMEOUT = 180  # 3 minutes max for transcription
 
 # Cache for loaded model
 _whisper_model = None
@@ -34,7 +40,7 @@ def get_whisper_model():
     return _whisper_model
 
 
-async def download_video(url: str, timeout: int = 60) -> Optional[bytes]:
+async def download_video(url: str, timeout: int = VIDEO_DOWNLOAD_TIMEOUT) -> Optional[bytes]:
     """Download video from URL."""
     try:
         async with httpx.AsyncClient() as client:
@@ -72,7 +78,7 @@ def extract_audio_from_video(video_path: str, audio_path: str) -> bool:
         result = subprocess.run(
             cmd,
             capture_output=True,
-            timeout=120  # 2 minutes timeout
+            timeout=FFMPEG_TIMEOUT
         )
 
         if result.returncode == 0:
@@ -89,9 +95,9 @@ def extract_audio_from_video(video_path: str, audio_path: str) -> bool:
         return False
 
 
-def transcribe_audio(audio_path: str, language: str = "pt") -> Optional[str]:
+def transcribe_audio_sync(audio_path: str, language: str = "pt") -> Optional[str]:
     """
-    Transcribe audio file using Whisper.
+    Transcribe audio file using Whisper (synchronous).
 
     Args:
         audio_path: Path to audio file
@@ -124,6 +130,43 @@ def transcribe_audio(audio_path: str, language: str = "pt") -> Optional[str]:
         return None
 
 
+async def transcribe_audio(audio_path: str, language: str = "pt") -> Optional[str]:
+    """
+    Transcribe audio file using Whisper with timeout.
+
+    Args:
+        audio_path: Path to audio file
+        language: Language code (default: Portuguese)
+
+    Returns:
+        Transcribed text or None if failed/timeout
+    """
+    try:
+        # Run Whisper in thread pool with timeout
+        async with asyncio.timeout(WHISPER_TIMEOUT):
+            result = await asyncio.to_thread(
+                transcribe_audio_sync, audio_path, language
+            )
+            return result
+
+    except asyncio.TimeoutError:
+        logger.error(f"Whisper transcription timeout ({WHISPER_TIMEOUT}s)")
+        return None
+    except Exception as e:
+        logger.error(f"Error in async transcription: {e}")
+        return None
+
+
+def _cleanup_temp_files(*paths):
+    """Helper to safely cleanup temporary files."""
+    for path in paths:
+        try:
+            if path and os.path.exists(path):
+                os.unlink(path)
+        except Exception:
+            pass
+
+
 async def transcribe_video_url(
     video_url: str,
     language: str = "pt"
@@ -143,6 +186,9 @@ async def transcribe_video_url(
 
     logger.info(f"Starting video transcription for: {video_url[:50]}...")
 
+    video_path = None
+    audio_path = None
+
     try:
         # Download video
         video_data = await download_video(video_url)
@@ -157,32 +203,26 @@ async def transcribe_video_url(
 
         audio_path = video_path.replace('.mp4', '.wav')
 
-        try:
-            # Extract audio
-            if not extract_audio_from_video(video_path, audio_path):
-                logger.warning("Failed to extract audio from video")
-                return False, None
+        # Extract audio
+        if not extract_audio_from_video(video_path, audio_path):
+            logger.warning("Failed to extract audio from video")
+            return False, None
 
-            # Transcribe
-            transcript = transcribe_audio(audio_path, language)
+        # Transcribe
+        transcript = await transcribe_audio(audio_path, language)
 
-            if transcript:
-                return True, transcript
-            else:
-                return False, None
-
-        finally:
-            # Cleanup temp files
-            for path in [video_path, audio_path]:
-                try:
-                    if os.path.exists(path):
-                        os.unlink(path)
-                except Exception:
-                    pass
+        if transcript:
+            return True, transcript
+        else:
+            return False, None
 
     except Exception as e:
         logger.error(f"Error in video transcription: {e}")
         return False, None
+
+    finally:
+        # Always cleanup temp files (even on timeout/exception)
+        _cleanup_temp_files(video_path, audio_path)
 
 
 async def process_video_for_keywords(

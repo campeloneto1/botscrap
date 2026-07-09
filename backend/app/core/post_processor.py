@@ -4,7 +4,7 @@ Handles OCR, keyword detection, AI summary, and Telegram notifications.
 """
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy import select
@@ -35,6 +35,7 @@ class PostProcessor:
         self.is_processing = False
         self.posts_processed = 0
         self.posts_total = 0
+        self._lock = asyncio.Lock()  # Prevent concurrent processing
 
     def get_status(self) -> dict:
         """Get processor status."""
@@ -44,78 +45,122 @@ class PostProcessor:
             "posts_total": self.posts_total,
         }
 
+    async def _recover_stuck_posts(self, db: AsyncSession, max_age_minutes: int = 10):
+        """
+        Recover posts stuck in 'processing' status for too long.
+        This can happen if the process crashed while processing.
+        """
+        cutoff_time = get_local_now_naive() - timedelta(minutes=max_age_minutes)
+
+        result = await db.execute(
+            select(ProcessedPost)
+            .where(
+                ProcessedPost.status == "processing",
+                ProcessedPost.processed_at < cutoff_time
+            )
+        )
+        stuck_posts = result.scalars().all()
+
+        if stuck_posts:
+            logger.warning(f"Recovering {len(stuck_posts)} posts stuck in 'processing' status")
+            for post in stuck_posts:
+                post.status = "pending"
+            await db.commit()
+
+        return len(stuck_posts)
+
     async def process_pending_posts(self, user_id: Optional[int] = None) -> dict:
         """
         Process all pending posts.
         If user_id is provided, only process posts for that user.
         """
-        if self.is_processing:
+        # Try to acquire lock atomically (prevents race condition)
+        try:
+            await asyncio.wait_for(self._lock.acquire(), timeout=0.01)
+        except asyncio.TimeoutError:
+            logger.debug("Post processor already running, skipping")
             return {"success": False, "error": "Already processing"}
 
-        self.is_processing = True
-        self.posts_processed = 0
-        results = {
-            "success": True,
-            "posts_processed": 0,
-            "posts_sent": 0,
-            "keywords_found": 0,
-            "ocr_performed": 0,
-            "errors": [],
-        }
-
         try:
-            async with async_session() as db:
-                app_settings = await get_app_settings(db)
+            self.is_processing = True
+            self.posts_processed = 0
+            results = {
+                "success": True,
+                "posts_processed": 0,
+                "posts_sent": 0,
+                "keywords_found": 0,
+                "ocr_performed": 0,
+                "errors": [],
+            }
 
-                # Get pending posts with profile info
-                query = (
-                    select(ProcessedPost)
-                    .options(selectinload(ProcessedPost.profile).selectinload(Profile.telegram_group))
-                    .where(ProcessedPost.status == "pending")
-                    .order_by(ProcessedPost.processed_at.asc())
-                )
+            try:
+                async with async_session() as db:
+                    app_settings = await get_app_settings(db)
 
-                if user_id:
-                    query = query.join(Profile).where(Profile.user_id == user_id)
+                    # Recover posts stuck in processing (crashed processes)
+                    await self._recover_stuck_posts(db)
 
-                result = await db.execute(query)
-                pending_posts = result.scalars().all()
+                    # Get pending posts with profile info
+                    # Use FOR UPDATE SKIP LOCKED to prevent race conditions
+                    query = (
+                        select(ProcessedPost)
+                        .options(selectinload(ProcessedPost.profile).selectinload(Profile.telegram_group))
+                        .where(ProcessedPost.status == "pending")
+                        .order_by(ProcessedPost.processed_at.asc())
+                        .with_for_update(skip_locked=True)  # Lock rows, skip already locked
+                        .limit(50)  # Process in batches to avoid long locks
+                    )
 
-                self.posts_total = len(pending_posts)
-                logger.info(f"Processing {self.posts_total} pending posts...")
+                    if user_id:
+                        query = query.join(Profile).where(Profile.user_id == user_id)
 
-                for post in pending_posts:
-                    try:
-                        await self._process_single_post(db, post, app_settings)
-                        results["posts_processed"] += 1
+                    result = await db.execute(query)
+                    pending_posts = result.scalars().all()
 
-                        if post.has_keyword:
-                            results["keywords_found"] += 1
-                        if post.ocr_text:
-                            results["ocr_performed"] += 1
-                        if post.sent_at:
-                            results["posts_sent"] += 1
+                    self.posts_total = len(pending_posts)
+                    if pending_posts:
+                        logger.info(f"Processing {self.posts_total} pending posts...")
 
-                        self.posts_processed += 1
+                    for post in pending_posts:
+                        try:
+                            # Mark as processing IMMEDIATELY to prevent race conditions
+                            post.status = "processing"
+                            await db.commit()
 
-                    except Exception as e:
-                        logger.error(f"Error processing post {post.id}: {e}")
-                        results["errors"].append(f"Post {post.id}: {str(e)}")
-                        post.status = "failed"
-                        await db.commit()
+                            await self._process_single_post(db, post, app_settings)
+                            results["posts_processed"] += 1
 
-                await db.commit()
+                            if post.has_keyword:
+                                results["keywords_found"] += 1
+                            if post.ocr_text:
+                                results["ocr_performed"] += 1
+                            if post.sent_at:
+                                results["posts_sent"] += 1
 
-        except Exception as e:
-            logger.error(f"Error in post processor: {e}")
-            results["success"] = False
-            results["error"] = str(e)
+                            self.posts_processed += 1
+
+                        except Exception as e:
+                            logger.error(f"Error processing post {post.id}: {e}")
+                            results["errors"].append(f"Post {post.id}: {str(e)}")
+                            post.status = "failed"
+                            await db.commit()
+
+                    await db.commit()
+
+            except Exception as e:
+                logger.error(f"Error in post processor: {e}")
+                results["success"] = False
+                results["error"] = str(e)
+
+            finally:
+                self.is_processing = False
+
+            if results["posts_processed"] > 0:
+                logger.info(f"Post processing completed: {results}")
+            return results
 
         finally:
-            self.is_processing = False
-
-        logger.info(f"Post processing completed: {results}")
-        return results
+            self._lock.release()
 
     async def _process_single_post(
         self,
@@ -124,8 +169,7 @@ class PostProcessor:
         app_settings: AppSettings
     ):
         """Process a single post - OCR, keywords, AI, Telegram."""
-        post.status = "processing"
-        await db.commit()
+        # Status já foi definido como "processing" no loop principal
 
         profile = post.profile
         if not profile:
@@ -183,9 +227,11 @@ class PostProcessor:
         if is_video and post.media_url and keywords:
             try:
                 logger.info(f"Starting video transcription for post {post.id}...")
-                video_has_kw, video_matched, video_priority, transcript = await process_video_for_keywords(
-                    post.media_url, keywords, language="pt"
-                )
+                # Timeout total de 5 minutos para todo o processo de vídeo
+                async with asyncio.timeout(300):
+                    video_has_kw, video_matched, video_priority, transcript = await process_video_for_keywords(
+                        post.media_url, keywords, language="pt"
+                    )
 
                 if transcript:
                     post.video_transcript = transcript
@@ -205,6 +251,8 @@ class PostProcessor:
 
                         logger.info(f"Video transcription found keywords in post {post.id}: {video_matched}")
 
+            except asyncio.TimeoutError:
+                logger.warning(f"Video transcription timeout for post {post.id} (max 5 min)")
             except Exception as e:
                 logger.warning(f"Video transcription failed for post {post.id}: {e}")
 
@@ -222,6 +270,9 @@ class PostProcessor:
 
         # Send to Telegram
         if profile.telegram_group_id and profile.telegram_group:
+            # Double-check from database to prevent race conditions
+            await db.refresh(post)
+
             # Skip if already sent (prevents duplicates)
             if post.sent_at:
                 logger.info(f"Post {post.id} already sent at {post.sent_at}, skipping")
@@ -263,6 +314,8 @@ class PostProcessor:
                         )
 
                     post.sent_at = get_local_now_naive()
+                    # Commit immediately to prevent duplicate sends
+                    await db.commit()
                     logger.info(f"Post {post.id} sent to Telegram")
 
                 except Exception as e:
