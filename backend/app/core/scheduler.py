@@ -8,6 +8,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+import httpx
 
 from app.config import get_settings, get_local_now_naive
 from app.db.database import async_session
@@ -190,7 +192,6 @@ class ScrapingScheduler:
             app_settings = await get_app_settings(db)
 
             # Get all active profiles with their relationships loaded
-            from sqlalchemy.orm import selectinload
             result = await db.execute(
                 select(Profile)
                 .options(selectinload(Profile.telegram_group))
@@ -342,7 +343,6 @@ class ScrapingScheduler:
             interval_hours = get_scrape_interval(app_settings)
 
             # Get all active profiles with relationships loaded
-            from sqlalchemy.orm import selectinload
             result = await db.execute(
                 select(Profile)
                 .options(selectinload(Profile.telegram_group))
@@ -484,7 +484,6 @@ class ScrapingScheduler:
                                             f"({len(profiles_list)} perfis verificados)."
                                         )
 
-                                    import httpx
                                     url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
                                     async with httpx.AsyncClient() as client:
                                         await client.post(url, json={
@@ -652,11 +651,16 @@ if __name__ == "__main__":
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    scheduler = ScrapingScheduler()
-    scheduler.start()
+    async def main():
+        scheduler = ScrapingScheduler()
+        scheduler.start()
+        try:
+            while True:
+                await asyncio.sleep(3600)  # Sleep for 1 hour
+        except (KeyboardInterrupt, SystemExit):
+            scheduler.stop()
 
     try:
-        asyncio.get_event_loop().run_forever()
+        asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        scheduler.stop()
         sys.exit(0)

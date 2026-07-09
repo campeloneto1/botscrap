@@ -9,6 +9,10 @@ engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
     future=True,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,  # Validate connections before use
+    pool_recycle=3600,   # Recycle connections after 1 hour
 )
 
 async_session = async_sessionmaker(

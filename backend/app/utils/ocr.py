@@ -3,17 +3,25 @@ OCR utilities for extracting text from images.
 Uses Tesseract OCR to detect text in post images.
 Includes caching to avoid reprocessing the same images.
 """
+import asyncio
 import logging
 import io
-from datetime import datetime
-from app.config import get_local_now_naive
 from typing import Optional, List, Tuple
+
 import httpx
 from PIL import Image
 import pytesseract
 from sqlalchemy import select
 
+from app.config import get_local_now_naive
+from app.db.database import async_session
+from app.db.models import OCRCache
+from app.utils.keywords import find_keywords
+
 logger = logging.getLogger(__name__)
+
+# Timeout for OCR processing
+OCR_TIMEOUT = 30  # seconds
 
 
 async def download_image(url: str, timeout: int = 30) -> Optional[bytes]:
@@ -33,9 +41,9 @@ async def download_image(url: str, timeout: int = 30) -> Optional[bytes]:
     return None
 
 
-def extract_text_from_image(image_bytes: bytes, lang: str = 'por+eng') -> str:
+def _extract_text_sync(image_bytes: bytes, lang: str = 'por+eng') -> str:
     """
-    Extract text from image bytes using Tesseract OCR.
+    Extract text from image bytes using Tesseract OCR (synchronous).
 
     Args:
         image_bytes: Image data
@@ -63,6 +71,25 @@ def extract_text_from_image(image_bytes: bytes, lang: str = 'por+eng') -> str:
         return ""
 
 
+async def extract_text_from_image(image_bytes: bytes, lang: str = 'por+eng') -> str:
+    """
+    Extract text from image bytes using Tesseract OCR (async with timeout).
+
+    Args:
+        image_bytes: Image data
+        lang: Tesseract language codes (e.g., 'por+eng', 'eng', 'spa+eng')
+    """
+    try:
+        async with asyncio.timeout(OCR_TIMEOUT):
+            return await asyncio.to_thread(_extract_text_sync, image_bytes, lang)
+    except asyncio.TimeoutError:
+        logger.error(f"OCR timeout ({OCR_TIMEOUT}s)")
+        return ""
+    except Exception as e:
+        logger.error(f"Error in async OCR: {e}")
+        return ""
+
+
 async def extract_text_from_url(url: str, lang: str = 'por+eng', use_cache: bool = True) -> str:
     """
     Download image and extract text using OCR with caching.
@@ -78,9 +105,6 @@ async def extract_text_from_url(url: str, lang: str = 'por+eng', use_cache: bool
     # Check cache first
     if use_cache:
         try:
-            from app.db.database import async_session
-            from app.db.models import OCRCache
-
             async with async_session() as db:
                 result = await db.execute(
                     select(OCRCache).where(
@@ -107,7 +131,7 @@ async def extract_text_from_url(url: str, lang: str = 'por+eng', use_cache: bool
     if not image_bytes:
         return ""
 
-    text = extract_text_from_image(image_bytes, lang=lang)
+    text = await extract_text_from_image(image_bytes, lang=lang)
 
     if text:
         logger.debug(f"OCR extracted {len(text)} characters")
@@ -115,9 +139,6 @@ async def extract_text_from_url(url: str, lang: str = 'por+eng', use_cache: bool
     # Save to cache
     if use_cache:
         try:
-            from app.db.database import async_session
-            from app.db.models import OCRCache
-
             async with async_session() as db:
                 cache_entry = OCRCache(
                     image_url=url,
@@ -131,30 +152,6 @@ async def extract_text_from_url(url: str, lang: str = 'por+eng', use_cache: bool
             logger.warning(f"Failed to save OCR to cache: {e}")
 
     return text
-
-
-def find_keywords_in_text(text: str, keywords: List[dict]) -> Tuple[bool, List[str], int]:
-    """
-    Check if any keywords are found in the text.
-    Returns: (has_keyword, matched_keywords, highest_priority)
-    """
-    if not text or not keywords:
-        return False, [], 0
-
-    text_lower = text.lower()
-    matched = []
-    highest_priority = 0
-
-    for kw in keywords:
-        word = kw.get("word", "").lower()
-        priority = kw.get("priority", 1)
-
-        if word and word in text_lower:
-            matched.append(kw.get("word"))
-            if priority > highest_priority:
-                highest_priority = priority
-
-    return len(matched) > 0, matched, highest_priority
 
 
 async def process_image_for_keywords(
@@ -174,8 +171,8 @@ async def process_image_for_keywords(
     if not text:
         return False, [], 0, ""
 
-    # Find keywords in the extracted text
-    has_keyword, matched, priority = find_keywords_in_text(text, keywords)
+    # Find keywords in the extracted text (uses shared function from keywords.py)
+    has_keyword, matched, priority = find_keywords(text, keywords)
 
     if has_keyword:
         logger.info(f"OCR found keywords in image: {matched}")
